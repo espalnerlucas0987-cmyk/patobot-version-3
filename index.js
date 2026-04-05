@@ -59,7 +59,7 @@ async function connectToWhatsApp() {
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" }))
         },
         logger: pino({ level: "silent" }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        browser: ["Windows", "Edge", "110.0.1587.41"]
     });
 
     if (!sock.authState.creds.registered) {
