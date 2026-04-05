@@ -7,8 +7,12 @@ const {
 } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
+const axios = require("axios"); // Importante para a gasolina ⛽
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// LINK DO SEU BOT NO RENDER
+const MY_URL = "https://patobot-version-3.onrender.com";
 
 // Banner do PATOBOT PRO
 console.log(`
@@ -27,7 +31,7 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ 
 
     > STATUS: SISTEMA INICIADO
-    > MÓDULO: BOAS-VINDAS ATIVADO 🦆👋
+    > MÓDULO: GASOLINA 60s ATIVADO ⛽
     > DESENVOLVEDOR: LUCAS
 `);
 
@@ -38,6 +42,16 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
     console.log(`Servidor na porta ${PORT}`);
 });
+
+// LÓGICA DA GASOLINA ⛽ (AUTO-PING A CADA 1 MINUTO)
+setInterval(async () => {
+    try {
+        await axios.get(MY_URL);
+        console.log("⛽ Gasolina injetada: Motor aquecido!");
+    } catch (e) {
+        console.log("❌ Erro no Auto-Ping interno.");
+    }
+}, 60000);
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_info");
@@ -61,7 +75,7 @@ async function connectToWhatsApp() {
                 let code = await sock.requestPairingCode(phoneNumber);
                 console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
             } catch (error) {
-                console.error("Erro ao solicitar código:", error);
+                error.log("Erro ao solicitar código:", error);
             }
         }, 3000);
     }
