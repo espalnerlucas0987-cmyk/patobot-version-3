@@ -27,17 +27,16 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ 
 
     > STATUS: SISTEMA INICIADO
-    > DESENVOLVEDOR: LUCAS (ART OF DUCK)
-    > AGUARDANDO CONEXÃO...
+    > MÓDULO: BOAS-VINDAS ATIVADO 🦆👋
+    > DESENVOLVEDOR: LUCAS
 `);
 
-// Servidor Express básico para o Render
 app.get("/", (req, res) => {
-    res.send("Patobot Pro está online e vigiando!");
+    res.send("Patobot Pro online e vigiando!");
 });
 
 app.listen(PORT, () => {
-    console.log(`Servidor Express rodando na porta ${PORT}`);
+    console.log(`Servidor na porta ${PORT}`);
 });
 
 async function connectToWhatsApp() {
@@ -69,6 +68,24 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // LÓGICA DE BOAS-VINDAS (RECEPÇÃO)
+    sock.ev.on("group-participants.update", async (anu) => {
+        try {
+            const { id, participants, action } = anu;
+            if (action === "add") {
+                for (let num of participants) {
+                    let welcomeMsg = `Olá @${num.split("@")[0]}! 👋\n\nBem-vindo(a) à **ART of Duck**! 🦆✨\n\nRespeite as regras e divirta-se com a comunidade!`;
+                    await sock.sendMessage(id, { 
+                        text: welcomeMsg, 
+                        mentions: [num] 
+                    });
+                }
+            }
+        } catch (err) {
+            console.log("Erro no Boas-Vindas:", err);
+        }
+    });
+
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === "close") {
@@ -86,40 +103,37 @@ async function connectToWhatsApp() {
         const from = msg.key.remoteJid;
         const isGroup = from.endsWith('@g.us');
         const messageContent = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
-        const args = messageContent.trim().split(/ +/).slice(1);
 
         // COMANDO !PING
         if (messageContent === "!ping") {
             await sock.sendMessage(from, { text: "🏓 Pong! Patobot Pro operante." });
         }
 
-      // COMANDO !BAN (XERIFE COM TRAVA DE SEGURANÇA)
+        // COMANDO !BAN (COM TRAVA DE ADMIN)
         if (messageContent.startsWith("!ban")) {
-            if (!isGroup) return await sock.sendMessage(from, { text: "Esse comando só funciona em grupos!" });
+            if (!isGroup) return;
 
-            // Puxa a lista de participantes e verifica se quem mandou é Admin
             const groupMetadata = await sock.groupMetadata(from);
             const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
             const isSenderAdmin = admins.includes(msg.key.participant || msg.key.remoteJid);
 
             if (!isSenderAdmin) {
-                return await sock.sendMessage(from, { text: "🚫 Ops! Apenas administradores podem usar o martelo do banimento." });
+                return await sock.sendMessage(from, { text: "🚫 Apenas ADMs podem usar este comando!" });
             }
 
-            // Se chegou aqui, é admin. Agora busca quem será banido
             const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                             msg.message.extendedTextMessage?.contextInfo?.participant;
 
-            if (!mention) return await sock.sendMessage(from, { text: "Marque alguém ou responda a mensagem de quem você quer banir!" });
+            if (!mention) return await sock.sendMessage(from, { text: "Marque alguém ou responda a mensagem!" });
 
             try {
                 await sock.groupParticipantsUpdate(from, [mention], "remove");
-                await sock.sendMessage(from, { text: "🚫 Alvo removido com sucesso. Ordem restabelecida!" });
+                await sock.sendMessage(from, { text: "🚫 Alvo removido com sucesso!" });
             } catch (e) {
-                await sock.sendMessage(from, { text: "Erro ao banir! Verifique se eu sou administrador do grupo." });
+                await sock.sendMessage(from, { text: "Erro! Verifique se eu sou Admin." });
             }
         }
-   });
+    });
 }
 
 connectToWhatsApp();
