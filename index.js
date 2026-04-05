@@ -119,3 +119,7 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: "Erro ao banir! Verifique se eu sou administrador do grupo." });
             }
         }
+   });
+}
+
+connectToWhatsApp();
