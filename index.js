@@ -7,12 +7,13 @@ const {
 } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
-const axios = require("axios"); // Importante para a gasolina ⛽
+const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// LINK DO SEU BOT NO RENDER
+// CONFIGURAÇÕES DO XERIFE 🦆🔨
 const MY_URL = "https://patobot-version-3.onrender.com";
+const GRUPO_ID = "ID_DO_GRUPO_AQUI@g.us"; // COLOQUE O ID DO GRUPO DA ART OF DUCK AQUI!
 
 // Banner do PATOBOT PRO
 console.log(`
@@ -22,36 +23,19 @@ console.log(`
 ██╔═══╝ ██╔══██║   ██║   ██║   ██║██╔══██╗██║   ██║   ██║   
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
-                                                            
-██████╗ ██████╗  ██████╗ 
-██╔══██╗██╔══██╗██╔═══██╗
-██████╔╝██████╔╝██║   ██║
-██╔═══╝ ██╔══██╗██║   ██║
-██║     ██║  ██║╚██████╔╝
-╚═╝     ╚═╝  ╚═╝ ╚═════╝ 
 
-    > STATUS: SISTEMA INICIADO
-    > MÓDULO: GASOLINA 60s ATIVADO ⛽
-    > DESENVOLVEDOR: LUCAS
+    > MÓDULO: GASOLINA 60s + VIGIA NOTURNO 🌙
+    > HORÁRIO: FECHA 00:00 | ABRE 06:00
+    > COMUNIDADE: ART OF DUCK
 `);
 
 app.get("/", (req, res) => {
-    res.send("Patobot Pro online e vigiando!");
+    res.send("Patobot Pro online e patrulhando!");
 });
 
 app.listen(PORT, () => {
     console.log(`Servidor na porta ${PORT}`);
 });
-
-// LÓGICA DA GASOLINA ⛽ (AUTO-PING A CADA 1 MINUTO)
-setInterval(async () => {
-    try {
-        await axios.get(MY_URL);
-        console.log("⛽ Gasolina injetada: Motor aquecido!");
-    } catch (e) {
-        console.log("❌ Erro no Auto-Ping interno.");
-    }
-}, 60000);
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_info");
@@ -75,29 +59,57 @@ async function connectToWhatsApp() {
                 let code = await sock.requestPairingCode(phoneNumber);
                 console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
             } catch (error) {
-                error.log("Erro ao solicitar código:", error);
+                console.error("Erro ao solicitar código:", error);
             }
         }, 3000);
     }
 
     sock.ev.on("creds.update", saveCreds);
 
-    // LÓGICA DE BOAS-VINDAS (RECEPÇÃO)
+    // GASOLINA + VIGIA NOTURNO (A CADA 1 MINUTO)
+    setInterval(async () => {
+        try {
+            // ⛽ Injetando Gasolina
+            await axios.get(MY_URL);
+            
+            // 🌙 Lógica do Horário (Brasília)
+            const agora = new Date();
+            const horaBrasilia = agora.getUTCHours() - 3;
+            const hora = horaBrasilia < 0 ? horaBrasilia + 24 : horaBrasilia;
+            const minuto = agora.getUTCMinutes();
+
+            console.log(`⛽ Motor OK | ⏰ Relógio: ${hora}:${minuto}`);
+
+            // FECHAR GRUPO (00:00)
+            if (hora === 0 && minuto === 0) {
+                await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
+                await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \n\nO xerife avisou: Grupo fechado para descanso. Voltamos às 06:00! 🦆💤" });
+                console.log("🔒 Grupo trancado com sucesso.");
+            }
+
+            // ABRIR GRUPO (06:00)
+            if (hora === 6 && minuto === 0) {
+                await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
+                await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA, NOBRES!* \n\nO xerife abriu o cercado. Podem mandar bala nos desenhos! 🦆🎨" });
+                console.log("🔓 Grupo aberto com sucesso.");
+            }
+
+        } catch (e) {
+            console.log("❌ Erro no ciclo de vigia.");
+        }
+    }, 60000);
+
+    // LÓGICA DE BOAS-VINDAS
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
             if (action === "add") {
                 for (let num of participants) {
-                    let welcomeMsg = `Olá @${num.split("@")[0]}! 👋\n\nBem-vindo(a) à **ART of Duck**! 🦆✨\n\nRespeite as regras e divirta-se com a comunidade!`;
-                    await sock.sendMessage(id, { 
-                        text: welcomeMsg, 
-                        mentions: [num] 
-                    });
+                    let welcomeMsg = `Olá @${num.split("@")[0]}! 👋\n\nBem-vindo(a) à **ART of Duck**! 🦆✨\n\nRespeite as regras e divirta-se!`;
+                    await sock.sendMessage(id, { text: welcomeMsg, mentions: [num] });
                 }
             }
-        } catch (err) {
-            console.log("Erro no Boas-Vindas:", err);
-        }
+        } catch (err) { console.log(err); }
     });
 
     sock.ev.on("connection.update", (update) => {
@@ -118,34 +130,22 @@ async function connectToWhatsApp() {
         const isGroup = from.endsWith('@g.us');
         const messageContent = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
-        // COMANDO !PING
         if (messageContent === "!ping") {
             await sock.sendMessage(from, { text: "🏓 Pong! Patobot Pro operante." });
         }
 
-        // COMANDO !BAN (COM TRAVA DE ADMIN)
         if (messageContent.startsWith("!ban")) {
             if (!isGroup) return;
-
             const groupMetadata = await sock.groupMetadata(from);
             const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
-            const isSenderAdmin = admins.includes(msg.key.participant || msg.key.remoteJid);
-
-            if (!isSenderAdmin) {
-                return await sock.sendMessage(from, { text: "🚫 Apenas ADMs podem usar este comando!" });
+            if (!admins.includes(msg.key.participant || msg.key.remoteJid)) {
+                return await sock.sendMessage(from, { text: "🚫 Só ADMs, parceiro!" });
             }
-
             const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                             msg.message.extendedTextMessage?.contextInfo?.participant;
-
-            if (!mention) return await sock.sendMessage(from, { text: "Marque alguém ou responda a mensagem!" });
-
-            try {
-                await sock.groupParticipantsUpdate(from, [mention], "remove");
-                await sock.sendMessage(from, { text: "🚫 Alvo removido com sucesso!" });
-            } catch (e) {
-                await sock.sendMessage(from, { text: "Erro! Verifique se eu sou Admin." });
-            }
+            if (!mention) return await sock.sendMessage(from, { text: "Marque alguém!" });
+            await sock.groupParticipantsUpdate(from, [mention], "remove");
+            await sock.sendMessage(from, { text: "🔨 Alvo removido!" });
         }
     });
 }
