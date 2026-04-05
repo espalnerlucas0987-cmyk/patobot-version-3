@@ -1,3 +1,4 @@
+
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -13,7 +14,7 @@ const PORT = process.env.PORT || 8080;
 
 // CONFIGURAÇÕES DO XERIFE 🦆🔨
 const MY_URL = "https://patobot-version-3.onrender.com";
-const GRUPO_ID = "ID_DO_GRUPO_AQUI@g.us"; // COLOQUE O ID DO GRUPO DA ART OF DUCK AQUI!
+const GRUPO_ID = "ID_DO_GRUPO_AQUI@g.us"; // Você vai trocar isso depois de dar !id no grupo
 
 // Banner do PATOBOT PRO
 console.log(`
@@ -24,7 +25,7 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
 
-    > MÓDULO: GASOLINA 60s + VIGIA NOTURNO 🌙
+    > MÓDULO: GASOLINA + VIGIA NOTURNO + COMANDO ID 🔍
     > HORÁRIO: FECHA 00:00 | ABRE 06:00
     > COMUNIDADE: ART OF DUCK
 `);
@@ -78,20 +79,19 @@ async function connectToWhatsApp() {
             const hora = horaBrasilia < 0 ? horaBrasilia + 24 : horaBrasilia;
             const minuto = agora.getUTCMinutes();
 
-            console.log(`⛽ Motor OK | ⏰ Relógio: ${hora}:${minuto}`);
+            // SÓ TENTA FECHAR/ABRIR SE O ID TIVER SIDO CONFIGURADO
+            if (GRUPO_ID !== "ID_DO_GRUPO_AQUI@g.us") {
+                // FECHAR GRUPO (00:00)
+                if (hora === 0 && minuto === 0) {
+                    await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
+                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \n\nO xerife avisou: Grupo fechado para descanso. Voltamos às 06:00! 🦆💤" });
+                }
 
-            // FECHAR GRUPO (00:00)
-            if (hora === 0 && minuto === 0) {
-                await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
-                await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \n\nO xerife avisou: Grupo fechado para descanso. Voltamos às 06:00! 🦆💤" });
-                console.log("🔒 Grupo trancado com sucesso.");
-            }
-
-            // ABRIR GRUPO (06:00)
-            if (hora === 6 && minuto === 0) {
-                await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
-                await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA, NOBRES!* \n\nO xerife abriu o cercado. Podem mandar bala nos desenhos! 🦆🎨" });
-                console.log("🔓 Grupo aberto com sucesso.");
+                // ABRIR GRUPO (06:00)
+                if (hora === 6 && minuto === 0) {
+                    await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
+                    await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA, NOBRES!* \n\nO xerife abriu o cercado. Podem mandar bala nos desenhos! 🦆🎨" });
+                }
             }
 
         } catch (e) {
@@ -99,7 +99,7 @@ async function connectToWhatsApp() {
         }
     }, 60000);
 
-    // LÓGICA DE BOAS-VINDAS
+    // BOAS-VINDAS
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
@@ -130,6 +130,11 @@ async function connectToWhatsApp() {
         const isGroup = from.endsWith('@g.us');
         const messageContent = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
+        // COMANDO !ID PARA VOCÊ PEGAR O CÓDIGO DO GRUPO
+        if (messageContent === "!id") {
+            await sock.sendMessage(from, { text: `📍 O ID deste chat é:\n\n${from}` });
+        }
+
         if (messageContent === "!ping") {
             await sock.sendMessage(from, { text: "🏓 Pong! Patobot Pro operante." });
         }
@@ -139,13 +144,13 @@ async function connectToWhatsApp() {
             const groupMetadata = await sock.groupMetadata(from);
             const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
             if (!admins.includes(msg.key.participant || msg.key.remoteJid)) {
-                return await sock.sendMessage(from, { text: "🚫 Só ADMs, parceiro!" });
+                return await sock.sendMessage(from, { text: "🚫 Só ADMs!" });
             }
             const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                             msg.message.extendedTextMessage?.contextInfo?.participant;
             if (!mention) return await sock.sendMessage(from, { text: "Marque alguém!" });
             await sock.groupParticipantsUpdate(from, [mention], "remove");
-            await sock.sendMessage(from, { text: "🔨 Alvo removido!" });
+            await sock.sendMessage(from, { text: "🔨 Removido!" });
         }
     });
 }
