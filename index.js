@@ -93,11 +93,20 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: "🏓 Pong! Patobot Pro operante." });
         }
 
-        // COMANDO !BAN (XERIFE)
+      // COMANDO !BAN (XERIFE COM TRAVA DE SEGURANÇA)
         if (messageContent.startsWith("!ban")) {
             if (!isGroup) return await sock.sendMessage(from, { text: "Esse comando só funciona em grupos!" });
 
-            // Pega quem deve ser banido (marcado ou respondido)
+            // Puxa a lista de participantes e verifica se quem mandou é Admin
+            const groupMetadata = await sock.groupMetadata(from);
+            const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
+            const isSenderAdmin = admins.includes(msg.key.participant || msg.key.remoteJid);
+
+            if (!isSenderAdmin) {
+                return await sock.sendMessage(from, { text: "🚫 Ops! Apenas administradores podem usar o martelo do banimento." });
+            }
+
+            // Se chegou aqui, é admin. Agora busca quem será banido
             const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                             msg.message.extendedTextMessage?.contextInfo?.participant;
 
@@ -110,7 +119,3 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: "Erro ao banir! Verifique se eu sou administrador do grupo." });
             }
         }
-    });
-}
-
-connectToWhatsApp();
