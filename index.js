@@ -1,4 +1,3 @@
-
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -8,13 +7,12 @@ const {
 } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
-const https = require("https"); // Usando nativo para não precisar de axios
+const https = require("https"); 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 // CONFIGURAÇÕES
 const MY_URL = "https://patobot-version-3.onrender.com";
-const GRUPO_ID = "ID_DO_GRUPO_AQUI@g.us"; 
 
 app.get("/", (req, res) => {
     res.send("Patobot Pro online e patrulhando! 🦆🔨");
@@ -24,43 +22,45 @@ app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
 });
 
-// FUNÇÃO GASOLINA NATIVA (Sem precisar de axios)
 function injetarGasolina() {
     setInterval(() => {
         https.get(MY_URL, (res) => {
-            console.log(`⛽ Gasolina injetada: Status ${res.statusCode}`);
+            console.log(`⛽ Gasolina: Status ${res.statusCode}`);
         }).on('error', (e) => {
-            console.log("❌ Erro no Auto-Ping interno.");
+            console.log("❌ Erro no Auto-Ping.");
         });
-    }, 60000); // 1 minuto
+    }, 60000); 
 }
 
 async function connectToWhatsApp() {
+    // 1. O 'auth_info' precisa estar limpo se deu erro antes!
     const { state, saveCreds } = await useMultiFileAuthState("auth_info");
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
         version,
-        printQRInTerminal: false,
+        printQRInTerminal: false, // Desativado para usar Pareamento
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" }))
         },
         logger: pino({ level: "silent" }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        // AJUSTE 1: Identificação de navegador padrão (essencial para pareamento)
+        browser: ["Chrome (Linux)", "Chrome", "110.0.0.0"] 
     });
 
-    // SOLICITAÇÃO DE CÓDIGO (Só se não estiver logado)
+    // SOLICITAÇÃO DE CÓDIGO
     if (!sock.authState.creds.registered) {
         const phoneNumber = "5582991583743";
+        // AJUSTE 2: Tempo de espera maior (10s) para o Render processar a chave de segurança
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
-                console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
+                console.log(`\n📢 SEU CÓDIGO: ${code}\n`);
             } catch (error) {
                 console.error("Erro ao solicitar código:", error);
             }
-        }, 5000); // Aumentei o tempo para dar fôlego ao servidor
+        }, 10000); 
     }
 
     sock.ev.on("creds.update", saveCreds);
@@ -72,11 +72,10 @@ async function connectToWhatsApp() {
             if (shouldReconnect) connectToWhatsApp();
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
-            injetarGasolina(); // Só começa a gasolina depois que conectar
+            injetarGasolina(); 
         }
     });
 
-    // COMANDOS (PING E ID)
     sock.ev.on("messages.upsert", async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
