@@ -1,4 +1,3 @@
-
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -13,7 +12,7 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS)
+// CONFIGURAÇÕES DA IA (SUA CHAVE)
 const genAI = new GoogleGenerativeAI("AIzaSyByVmLtblUeWwHuQmysp_D0cDsACoI1cpY");
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
@@ -33,12 +32,12 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
     > STATUS: SISTEMA INICIADO + IA ATIVA 🤖
-    > MÓDULO: CONTROLE DE GRUPO + ARTE 🎨
+    > MÓDULO: XERIFE COMPLETO 🦆🔨
     > DESENVOLVEDOR: LUCAS / ART OF DUCK
 `);
 
 app.get("/", (req, res) => {
-    res.send("Patobot Pro online com IA e Tanque Cheio! ⛽🦆");
+    res.send("Patobot Pro online e com tanque cheio! ⛽🦆");
 });
 
 app.listen(PORT, () => {
@@ -105,7 +104,7 @@ async function connectToWhatsApp() {
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
 
-            // SISTEMA DO VIGIA NOTURNO
+            // SISTEMA DO VIGIA NOTURNO (Automático)
             setInterval(async () => {
                 const agora = new Date();
                 const horaBrasilia = (agora.getUTCHours() - 3 + 24) % 24;
@@ -139,9 +138,11 @@ async function connectToWhatsApp() {
         // --- VERIFICAÇÃO DE ADM ---
         let isAdm = false;
         if (isGroup) {
-            const groupMetadata = await sock.groupMetadata(from);
-            const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
-            isAdm = admins.includes(msg.key.participant || msg.key.remoteJid);
+            try {
+                const groupMetadata = await sock.groupMetadata(from);
+                const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
+                isAdm = admins.includes(msg.key.participant || msg.key.remoteJid);
+            } catch (e) { isAdm = false; }
         }
 
         // --- ANTI-LINK (SEGURANÇA) ---
@@ -155,7 +156,7 @@ async function connectToWhatsApp() {
         if (messageContent === "!id") return sock.sendMessage(from, { text: `📍 ID: ${from}` });
         if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n\n1. Respeito total.\n2. Sem conteúdo +18.\n3. Sem Spam/Links.\n4. Foco em Arte!" });
 
-        // --- COMANDO INSPIRAÇÃO (IA) ---
+        // --- INSPIRAÇÃO (IA) ---
         if (messageContent === "!inspiração") {
             try {
                 const result = await model.generateContent("Gere uma ideia criativa e curta para um desenho. Seja direto.");
@@ -163,10 +164,10 @@ async function connectToWhatsApp() {
             } catch (e) { console.log(e); }
         }
 
-        // --- COMANDO TUTORIAL YT ---
+        // --- TUTORIAL YT ---
         if (messageContent.startsWith("!yt")) {
             const busca = messageContent.replace("!yt", "").trim();
-            if (!busca) return sock.sendMessage(from, { text: "Ex: !yt como desenhar mãos" });
+            if (!busca) return sock.sendMessage(from, { text: "Diga o que quer aprender! Ex: !yt como desenhar mãos" });
             const linkYt = `https://www.youtube.com/results?search_query=${encodeURIComponent(busca)}+tutorial+desenho`;
             return sock.sendMessage(from, { text: `📺 *TUTORIAIS:* \nResultados para "${busca}":\n\n🔗 ${linkYt}` });
         }
@@ -175,16 +176,16 @@ async function connectToWhatsApp() {
         if (isGroup && isAdm) {
             if (messageContent === "!fechar") {
                 await sock.groupSettingUpdate(from, 'announcement');
-                return sock.sendMessage(from, { text: "🔒 *GRUPO FECHADO POR ADM!*" });
+                return sock.sendMessage(from, { text: "🔒 *GRUPO FECHADO!* \nApenas administradores podem falar." });
             }
             if (messageContent === "!abrir") {
                 await sock.groupSettingUpdate(from, 'not_announcement');
-                return sock.sendMessage(from, { text: "🔓 *GRUPO ABERTO POR ADM!*" });
+                return sock.sendMessage(from, { text: "🔓 *GRUPO ABERTO!* \nO Xerife liberou o chat." });
             }
             if (messageContent === "!adm") {
                 const meta = await sock.groupMetadata(from);
                 const admins = meta.participants.filter(p => p.admin).map(p => p.id);
-                return sock.sendMessage(from, { text: "🚨 *CHAMADA PARA OS ADMS!*", mentions: admins });
+                return sock.sendMessage(from, { text: "🚨 *CHAMADA GERAL PARA OS ADMS!*", mentions: admins });
             }
             if (messageContent.startsWith("!ban")) {
                 const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
@@ -194,7 +195,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- MENU COMPLETO ---
+        // --- MENU ATUALIZADO ---
         if (messageContent === "!menu") {
             const menuText = `🦆 *MENU DO PATOBOT PRO* 🦆\n\n` +
                              `*Controle:* !fechar | !abrir | !ban\n` +
@@ -211,10 +212,10 @@ async function connectToWhatsApp() {
 
         if (!isGroup || mencionado || respondido) {
             try {
-                const promptFinal = `Você é o Patobot, o Xerife da ART of Duck. Lucas é seu criador. Ajude com desenhos. Responda como um xerife pato legal. Pergunta: ${messageContent}`;
+                const promptFinal = `Você é o Patobot, o Xerife oficial da ART of Duck. Lucas é seu criador. Ajude com desenhos. Responda como um xerife pato legal e curto. Pergunta: ${messageContent}`;
                 const result = await model.generateContent(promptFinal);
                 await sock.sendMessage(from, { text: result.response.text() }, { quoted: msg });
-            } catch (err) { console.error(err); }
+            } catch (err) { console.error("Erro na IA:", err); }
         }
     });
 }
