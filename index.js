@@ -1,3 +1,4 @@
+
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -12,17 +13,14 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// CONFIGURAÇÕES DA IA (SUA CHAVE)
+// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS)
 const genAI = new GoogleGenerativeAI("AIzaSyByVmLtblUeWwHuQmysp_D0cDsACoI1cpY");
+// Ajustado para garantir compatibilidade com a versão v1
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// LINK OFICIAL DO SEU BOT NO RENDER:
 const MY_URL = "https://patobot-version-3.onrender.com"; 
-
-// ID DO GRUPO CONFIGURADO
 const GRUPO_ID = "120363404586258584@g.us"; 
 
-// Banner do PATOBOT PRO
 console.log(`
 ██████╗  █████╗ ████████╗ ██████╗ ██████╗  ██████╗ ████████╗
 ██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗██╔═══██╗╚══██╔══╝
@@ -32,26 +30,19 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
     > STATUS: SISTEMA INICIADO + IA ATIVA 🤖
-    > MÓDULO: XERIFE COMPLETO 🦆🔨
+    > MÓDULO: XERIFE TURBINADO 🦆🔨
     > DESENVOLVEDOR: LUCAS / ART OF DUCK
 `);
 
-app.get("/", (req, res) => {
-    res.send("Patobot Pro online e com tanque cheio! ⛽🦆");
-});
+app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
+app.listen(PORT, () => console.log(`Servidor na porta ${PORT}`));
 
-app.listen(PORT, () => {
-    console.log(`Servidor na porta ${PORT}`);
-});
-
-// FUNÇÃO GASOLINA (AUTO-PING A CADA 60 SEGUNDOS)
+// FUNÇÃO GASOLINA (AUTO-PING 1 MINUTO)
 setInterval(async () => {
     try {
         await axios.get(MY_URL); 
         console.log("⛽ Gasolina injetada: Motor aquecido!");
-    } catch (e) {
-        console.log("❌ Erro no Auto-Ping interno.");
-    }
+    } catch (e) { console.log("❌ Erro no Auto-Ping."); }
 }, 60000); 
 
 async function connectToWhatsApp() {
@@ -75,15 +66,12 @@ async function connectToWhatsApp() {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
                 console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
-            } catch (error) {
-                console.error("Erro ao solicitar código:", error);
-            }
+            } catch (error) { console.error("Erro no código:", error); }
         }, 3000);
     }
 
     sock.ev.on("creds.update", saveCreds);
 
-    // BOAS-VINDAS NORMAL
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
@@ -99,29 +87,22 @@ async function connectToWhatsApp() {
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === "close") {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) connectToWhatsApp();
+            if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) connectToWhatsApp();
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
-
-            // SISTEMA DO VIGIA NOTURNO (Automático)
+            
+            // VIGIA NOTURNO
             setInterval(async () => {
                 const agora = new Date();
-                const horaBrasilia = (agora.getUTCHours() - 3 + 24) % 24;
+                const hora = (agora.getUTCHours() - 3 + 24) % 24;
                 const minuto = agora.getUTCMinutes();
-
                 if (hora === 0 && minuto === 0) {
-                    try {
-                        await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
-                        await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \n\nO xerife fechou o grupo para descanso. Voltamos às 06:00! 💤" });
-                    } catch (e) { console.log(e); }
+                    await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
+                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado para descanso." });
                 }
-                
                 if (hora === 6 && minuto === 0) {
-                    try {
-                        await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
-                        await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \n\nGrupo aberto. Podem mandar bala nas artes! 🎨🦆" });
-                    } catch (e) { console.log(e); }
+                    await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
+                    await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nGrupo aberto para as artes! 🎨" });
                 }
             }, 60000);
         }
@@ -135,87 +116,56 @@ async function connectToWhatsApp() {
         const isGroup = from.endsWith('@g.us');
         const messageContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
-        // --- VERIFICAÇÃO DE ADM ---
+        // VERIFICAÇÃO DE ADM
         let isAdm = false;
         if (isGroup) {
             try {
-                const groupMetadata = await sock.groupMetadata(from);
-                const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
-                isAdm = admins.includes(msg.key.participant || msg.key.remoteJid);
+                const meta = await sock.groupMetadata(from);
+                isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(msg.key.participant || msg.key.remoteJid);
             } catch (e) { isAdm = false; }
         }
 
-        // --- ANTI-LINK (SEGURANÇA) ---
+        // ANTI-LINK
         if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
             await sock.sendMessage(from, { delete: msg.key });
-            return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!* \nApenas ADMs podem mandar links aqui." });
+            return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
 
-        // --- COMANDOS BÁSICOS ---
+        // COMANDOS
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
-        if (messageContent === "!id") return sock.sendMessage(from, { text: `📍 ID: ${from}` });
-        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n\n1. Respeito total.\n2. Sem conteúdo +18.\n3. Sem Spam/Links.\n4. Foco em Arte!" });
+        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
 
-        // --- INSPIRAÇÃO (IA) ---
         if (messageContent === "!inspiração") {
             try {
-                const result = await model.generateContent("Gere uma ideia criativa e curta para um desenho. Seja direto.");
-                return sock.sendMessage(from, { text: `🎨 *DESAFIO DO XERIFE:* \n\n${result.response.text()}` }, { quoted: msg });
+                const result = await model.generateContent("Dê uma ideia de desenho criativa e curta.");
+                return sock.sendMessage(from, { text: `🎨 *DESAFIO:* \n${result.response.text()}` }, { quoted: msg });
             } catch (e) { console.log(e); }
         }
 
-        // --- TUTORIAL YT ---
-        if (messageContent.startsWith("!yt")) {
-            const busca = messageContent.replace("!yt", "").trim();
-            if (!busca) return sock.sendMessage(from, { text: "Diga o que quer aprender! Ex: !yt como desenhar mãos" });
-            const linkYt = `https://www.youtube.com/results?search_query=${encodeURIComponent(busca)}+tutorial+desenho`;
-            return sock.sendMessage(from, { text: `📺 *TUTORIAIS:* \nResultados para "${busca}":\n\n🔗 ${linkYt}` });
-        }
-
-        // --- COMANDOS DE ADM ---
         if (isGroup && isAdm) {
-            if (messageContent === "!fechar") {
-                await sock.groupSettingUpdate(from, 'announcement');
-                return sock.sendMessage(from, { text: "🔒 *GRUPO FECHADO!* \nApenas administradores podem falar." });
-            }
-            if (messageContent === "!abrir") {
-                await sock.groupSettingUpdate(from, 'not_announcement');
-                return sock.sendMessage(from, { text: "🔓 *GRUPO ABERTO!* \nO Xerife liberou o chat." });
-            }
-            if (messageContent === "!adm") {
-                const meta = await sock.groupMetadata(from);
-                const admins = meta.participants.filter(p => p.admin).map(p => p.id);
-                return sock.sendMessage(from, { text: "🚨 *CHAMADA GERAL PARA OS ADMS!*", mentions: admins });
-            }
+            if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
+            if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
             if (messageContent.startsWith("!ban")) {
                 const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                if (!mention) return sock.sendMessage(from, { text: "Marque o alvo!" });
-                await sock.groupParticipantsUpdate(from, [mention], "remove");
-                return sock.sendMessage(from, { text: "🔨 O martelo do Xerife cantou!" });
+                if (mention) await sock.groupParticipantsUpdate(from, [mention], "remove");
             }
         }
 
-        // --- MENU ATUALIZADO ---
         if (messageContent === "!menu") {
-            const menuText = `🦆 *MENU DO PATOBOT PRO* 🦆\n\n` +
-                             `*Controle:* !fechar | !abrir | !ban\n` +
-                             `*Utilidades:* !regras | !adm | !id | !ping\n` +
-                             `*Arte:* !inspiração | !yt [tema]\n\n` +
-                             `*🤖 IA ATIVA:* Me marque ou responda para conversar!`;
-            return sock.sendMessage(from, { text: menuText });
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU* 🦆\n\n!fechar | !abrir | !ban\n!regras | !ping | !inspiração\n\n🤖 Marque o bot para usar a IA!` });
         }
 
-        // --- SISTEMA DE IA (GEMINI) ---
+        // SISTEMA DE IA
         const botId = sock.user.id.split(":")[0] + "@s.whatsapp.net";
         const mencionado = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.includes(botId);
         const respondido = msg.message.extendedTextMessage?.contextInfo?.participant === botId;
 
         if (!isGroup || mencionado || respondido) {
             try {
-                const promptFinal = `Você é o Patobot, o Xerife oficial da ART of Duck. Lucas é seu criador. Ajude com desenhos. Responda como um xerife pato legal e curto. Pergunta: ${messageContent}`;
-                const result = await model.generateContent(promptFinal);
+                const prompt = `Você é o Patobot, Xerife da ART of Duck. Lucas é seu criador. Ajude com desenhos de forma curta. Pergunta: ${messageContent}`;
+                const result = await model.generateContent(prompt);
                 await sock.sendMessage(from, { text: result.response.text() }, { quoted: msg });
-            } catch (err) { console.error("Erro na IA:", err); }
+            } catch (err) { console.error("Erro IA:", err); }
         }
     });
 }
