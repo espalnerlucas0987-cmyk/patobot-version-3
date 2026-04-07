@@ -24,7 +24,7 @@ const configFile = './config.json';
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
 if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true }));
 
-// --- FUNÇÃO DE PATENTES (ROBLOX STYLE) ---
+// --- FUNÇÃO DE PATENTES ATUALIZADA (ROBLOX RNG STYLE) ---
 function obterPatente(nivel) {
     if (nivel >= 200) return "🌌 *O ESCOLHIDO*";
     if (nivel >= 180) return "🔥 *SENHOR SUPREMO*";
@@ -32,10 +32,11 @@ function obterPatente(nivel) {
     if (nivel >= 140) return "👑 *IMPERADOR*";
     if (nivel >= 120) return "🦅 *ASCENDENTE*";
     if (nivel >= 100) return "🔱 *CONQUISTADOR*";
-    if (nivel >= 80)  return "✨ *CROMÁTICO*";
-    if (nivel >= 60)  return "🌓 *SOMBRA*";
-    if (nivel >= 40)  return "🖌️ *VANGUARDA*";
-    return "🐣 *NOOB (Recruta)*";
+    if (nivel >= 80)  return "🗿 *MOGGER*";
+    if (nivel >= 60)  return "⚡ *CHADE*";
+    if (nivel >= 40)  return "🍷 *SIGMA*";
+    if (nivel >= 20)  return "🖌️ *VANGUARDA*";
+    return "🐣 *NOOB*";
 }
 
 console.log(`
@@ -46,9 +47,9 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: XERIFE TURBINADO 🦆🔨
-    > SISTEMA: XP (25-125) + PATENTES
-    > TEMPORADA: ATIVA 🏆
+    > STATUS: XERIFE ESTABILIZADO 🦆🔨
+    > SISTEMA: RNG XP (CHANCE 20%)
+    > PERFORMANCE: OTIMIZADA PARA RENDER ⛽
 `);
 
 app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
@@ -90,7 +91,7 @@ async function connectToWhatsApp() {
             const { id, participants, action } = anu;
             if (action === "add" && id === GRUPO_ID) {
                 for (let num of participants) {
-                    let welcomeMsg = `Salve meu nobre! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) à *ART of Duck*! Mande três desenhos para os ADMs avaliarem você. \n\n⚠️ Leia as regras!\n\nEu sou o **PATO BOT**, o Xerife. 🦆🎨`;
+                    let welcomeMsg = `Salve meu nobre! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) à *ART of Duck*! Mande três desenhos para avaliação. \n\n⚠️ Leia as regras!\n\nEu sou o **PATO BOT**, o Xerife. 🦆🎨`;
                     await sock.sendMessage(id, { text: welcomeMsg, mentions: [num] });
                 }
             }
@@ -140,25 +141,30 @@ async function connectToWhatsApp() {
             } catch (e) { isAdm = false; }
         }
 
-        // --- NOVO SISTEMA DE XP TURBINADO ---
+        // --- SISTEMA DE XP OTIMIZADO (CHANCE DE 20%) ---
         if (config.xpAtivo && isGroup) {
-            if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
+            const sorteio = Math.floor(Math.random() * 5); // 0 a 4
             
-            // Ganho: 25 fixos + Sorte de até 100
-            const ganhoXP = 25 + Math.floor(Math.random() * 101);
-            dbs[user].xp += ganhoXP;
+            if (sorteio === 0) { // Só ganha XP em 20% das mensagens
+                if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
+                
+                // Ganho compensatório (mais alto por ser mais raro)
+                const ganhoXP = 50 + Math.floor(Math.random() * 101);
+                dbs[user].xp += ganhoXP;
 
-            let prox = dbs[user].level * 200;
-            if (dbs[user].xp >= prox) {
-                dbs[user].level += 1;
-                dbs[user].xp = 0;
-                const patente = obterPatente(dbs[user].level);
-                await sock.sendMessage(from, { 
-                    text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n📊 Agora você é nível *${dbs[user].level}*\n🏆 Patente: ${patente}`, 
-                    mentions: [user] 
-                });
+                let prox = dbs[user].level * 200;
+                if (dbs[user].xp >= prox) {
+                    dbs[user].level += 1;
+                    dbs[user].xp = 0;
+                    const patente = obterPatente(dbs[user].level);
+                    await sock.sendMessage(from, { 
+                        text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n📊 Agora você é nível *${dbs[user].level}*\n🏆 Patente: ${patente}`, 
+                        mentions: [user] 
+                    });
+                }
+                // Salva apenas quando realmente processar o XP
+                fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
             }
-            fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
         }
 
         if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
@@ -168,7 +174,6 @@ async function connectToWhatsApp() {
 
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
         
-        // --- PERFIL ATUALIZADO ---
         if (messageContent === "!perfil") {
             const { xp, level } = dbs[user] || { xp: 0, level: 1 };
             const patente = obterPatente(level);
@@ -202,6 +207,7 @@ async function connectToWhatsApp() {
             let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
             return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban | !fechar | !abrir | !xp on/off\n\n*STATUS XP:* ${statusXp}` });
         }
+        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
     });
 }
 
