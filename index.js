@@ -10,16 +10,26 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pino = require("pino");
 const express = require("express");
 const axios = require("axios");
+const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS)
+// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS) - CORRIGIDO PARA EVITAR ERRO 404
 const genAI = new GoogleGenerativeAI("AIzaSyByVmLtblUeWwHuQmysp_D0cDsACoI1cpY");
-// Ajustado para garantir compatibilidade com a versão v1
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    apiVersion: 'v1beta' 
+});
 
 const MY_URL = "https://patobot-version-3.onrender.com"; 
 const GRUPO_ID = "120363404586258584@g.us"; 
+
+// ARQUIVOS DE DADOS (XP E CONFIG)
+const xpFile = './usuarios_xp.json';
+const configFile = './config.json';
+
+if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
+if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true }));
 
 console.log(`
 ██████╗  █████╗ ████████╗ ██████╗ ██████╗  ██████╗ ████████╗
@@ -29,8 +39,8 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: SISTEMA INICIADO + IA ATIVA 🤖
-    > MÓDULO: XERIFE TURBINADO 🦆🔨
+    > STATUS: SISTEMA REESTRUTURADO 🛠️
+    > MÓDULO: XP + IA CORRIGIDA + BOAS-VINDAS 🦆
     > DESENVOLVEDOR: LUCAS / ART OF DUCK
 `);
 
@@ -41,8 +51,8 @@ app.listen(PORT, () => console.log(`Servidor na porta ${PORT}`));
 setInterval(async () => {
     try {
         await axios.get(MY_URL); 
-        console.log("⛽ Gasolina injetada: Motor aquecido!");
-    } catch (e) { console.log("❌ Erro no Auto-Ping."); }
+        console.log("⛽ Gasolina injetada!");
+    } catch (e) { }
 }, 60000); 
 
 async function connectToWhatsApp() {
@@ -72,12 +82,13 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // --- MENSAGEM DE BOAS-VINDAS PERSONALIZADA ---
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
             if (action === "add" && id === GRUPO_ID) {
                 for (let num of participants) {
-                    let welcomeMsg = `Salve meus nobres! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) à ART of Duck!\n\nEu sou o **PATO BOT 1.0**, o Xerife do grupo. Pode mandar bala nas artes! 🦆🎨`;
+                    let welcomeMsg = `Salve meu nobre! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) ao nosso grupo! Mande três desenhos para os ADMs avaliarem você e te colocarem na categoria certa. \n\n⚠️ E não se esqueça de olhar as regras!\n\nEu sou o **PATO BOT**, o Xerife. 🦆🎨`;
                     await sock.sendMessage(id, { text: welcomeMsg, mentions: [num] });
                 }
             }
@@ -90,21 +101,6 @@ async function connectToWhatsApp() {
             if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) connectToWhatsApp();
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
-            
-            // VIGIA NOTURNO
-            setInterval(async () => {
-                const agora = new Date();
-                const hora = (agora.getUTCHours() - 3 + 24) % 24;
-                const minuto = agora.getUTCMinutes();
-                if (hora === 0 && minuto === 0) {
-                    await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado para descanso." });
-                }
-                if (hora === 6 && minuto === 0) {
-                    await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nGrupo aberto para as artes! 🎨" });
-                }
-            }, 60000);
         }
     });
 
@@ -114,15 +110,33 @@ async function connectToWhatsApp() {
 
         const from = msg.key.remoteJid;
         const isGroup = from.endsWith('@g.us');
+        const user = msg.key.participant || msg.key.remoteJid;
         const messageContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+
+        // CARREGAR CONFIGS E XP
+        let config = JSON.parse(fs.readFileSync(configFile));
+        let dbs = JSON.parse(fs.readFileSync(xpFile));
 
         // VERIFICAÇÃO DE ADM
         let isAdm = false;
         if (isGroup) {
             try {
                 const meta = await sock.groupMetadata(from);
-                isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(msg.key.participant || msg.key.remoteJid);
+                isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
             } catch (e) { isAdm = false; }
+        }
+
+        // --- SISTEMA DE XP ---
+        if (config.xpAtivo && isGroup) {
+            if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
+            dbs[user].xp += Math.floor(Math.random() * 10) + 5;
+            let prox = dbs[user].level * 200;
+            if (dbs[user].xp >= prox) {
+                dbs[user].level += 1;
+                dbs[user].xp = 0;
+                await sock.sendMessage(from, { text: `🆙 *LEVEL UP!* @${user.split("@")[0]} subiu para o *Nível ${dbs[user].level}*!`, mentions: [user] });
+            }
+            fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
         }
 
         // ANTI-LINK
@@ -131,31 +145,36 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
 
-        // COMANDOS
+        // --- COMANDOS ---
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
         if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
-
-        if (messageContent === "!inspiração") {
-            try {
-                const result = await model.generateContent("Dê uma ideia de desenho criativa e curta.");
-                return sock.sendMessage(from, { text: `🎨 *DESAFIO:* \n${result.response.text()}` }, { quoted: msg });
-            } catch (e) { console.log(e); }
+        
+        if (messageContent === "!perfil") {
+            if (!config.xpAtivo) return sock.sendMessage(from, { text: "❌ O sistema de XP está desativado." });
+            const { xp, level } = dbs[user] || { xp: 0, level: 1 };
+            return sock.sendMessage(from, { text: `👤 *STATUS:* \n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`, mentions: [user] });
         }
 
-        if (isGroup && isAdm) {
-            if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
-            if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
-            if (messageContent.startsWith("!ban")) {
-                const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                if (mention) await sock.groupParticipantsUpdate(from, [mention], "remove");
+        // CONTROLE DE XP (SÓ ADM)
+        if (isAdm) {
+            if (messageContent === "!xp off") {
+                config.xpAtivo = false;
+                fs.writeFileSync(configFile, JSON.stringify(config));
+                return sock.sendMessage(from, { text: "🔘 XP desativado." });
+            }
+            if (messageContent === "!xp on") {
+                config.xpAtivo = true;
+                fs.writeFileSync(configFile, JSON.stringify(config));
+                return sock.sendMessage(from, { text: "🔘 XP ativado." });
             }
         }
 
         if (messageContent === "!menu") {
-            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU* 🦆\n\n!fechar | !abrir | !ban\n!regras | !ping | !inspiração\n\n🤖 Marque o bot para usar a IA!` });
+            let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU* \n\n!regras | !ping | !perfil\n!xp on/off (ADM)\n\nXP atual: ${statusXp}\n🤖 Marque o bot para usar a IA!` });
         }
 
-        // SISTEMA DE IA
+        // SISTEMA DE IA (CORRIGIDO)
         const botId = sock.user.id.split(":")[0] + "@s.whatsapp.net";
         const mencionado = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.includes(botId);
         const respondido = msg.message.extendedTextMessage?.contextInfo?.participant === botId;
