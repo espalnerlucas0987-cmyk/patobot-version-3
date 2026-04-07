@@ -1,4 +1,5 @@
 
+
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -6,27 +7,20 @@ const {
     fetchLatestBaileysVersion,
     makeCacheableSignalKeyStore
 } = require("@whiskeysockets/baileys");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pino = require("pino");
 const express = require("express");
 const axios = require("axios");
-const fs = require('fs');
+const fs = require('fs'); // Necessário para salvar o XP
 const app = express();
 const PORT = process.env.PORT || 8080;
-
-// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS) - v1beta
-const genAI = new GoogleGenerativeAI("AIzaSyByVmLtblUeWwHuQmysp_D0cDsACoI1cpY");
-const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    apiVersion: 'v1beta' 
-});
 
 const MY_URL = "https://patobot-version-3.onrender.com"; 
 const GRUPO_ID = "120363404586258584@g.us"; 
 
-// ARQUIVOS DE DADOS
+// ARQUIVOS DE DADOS (XP E CONFIG)
 const xpFile = './usuarios_xp.json';
 const configFile = './config.json';
+
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
 if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true }));
 
@@ -38,15 +32,18 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: XERIFE COMPLETO COM MARTELO DO BAN 🔨
-    > MÓDULO: XP + IA + BOAS-VINDAS + NOTURNO
+    > STATUS: XERIFE ATUALIZADO 🦆🔨
+    > MÓDULO: XP + BAN CORRIGIDO + NOTURNO
+    > IA: DESATIVADA TEMPORARIAMENTE
 `);
 
-app.get("/", (req, res) => res.send("Patobot online! ⛽"));
+app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
 app.listen(PORT, () => console.log(`Servidor na porta ${PORT}`));
 
 setInterval(async () => {
-    try { await axios.get(MY_URL); } catch (e) { }
+    try {
+        await axios.get(MY_URL); 
+    } catch (e) { }
 }, 60000); 
 
 async function connectToWhatsApp() {
@@ -76,7 +73,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // BOAS-VINDAS PERSONALIZADA
+    // BOAS-VINDAS ATUALIZADO
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
@@ -90,12 +87,13 @@ async function connectToWhatsApp() {
     });
 
     sock.ev.on("connection.update", (update) => {
-        const { connection } = update;
-        if (connection === "close") connectToWhatsApp();
-        else if (connection === "open") {
+        const { connection, lastDisconnect } = update;
+        if (connection === "close") {
+            if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) connectToWhatsApp();
+        } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
             
-            // MODO NOTURNO
+            // VIGIA NOTURNO (FECHA 00H, ABRE 06H)
             setInterval(async () => {
                 const agora = new Date();
                 const hora = (agora.getUTCHours() - 3 + 24) % 24;
@@ -121,18 +119,20 @@ async function connectToWhatsApp() {
         const user = msg.key.participant || msg.key.remoteJid;
         const messageContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
+        // CARREGAR DADOS
         let config = JSON.parse(fs.readFileSync(configFile));
         let dbs = JSON.parse(fs.readFileSync(xpFile));
 
+        // VERIFICAÇÃO DE ADM
         let isAdm = false;
         if (isGroup) {
             try {
                 const meta = await sock.groupMetadata(from);
                 isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
-            } catch (e) { }
+            } catch (e) { isAdm = false; }
         }
 
-        // XP
+        // SISTEMA DE XP
         if (config.xpAtivo && isGroup) {
             if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
             dbs[user].xp += Math.floor(Math.random() * 10) + 5;
@@ -151,44 +151,43 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
 
-        // COMANDOS GERAIS
+        // COMANDOS PÚBLICOS
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
-        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS:* 1. Respeito | 2. Sem +18 | 3. Sem Spam." });
+        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
         if (messageContent === "!perfil") {
             const { xp, level } = dbs[user] || { xp: 0, level: 1 };
-            return sock.sendMessage(from, { text: `👤 *PERFIL:* \n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`, mentions: [user] });
+            return sock.sendMessage(from, { text: `👤 *STATUS:* \n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`, mentions: [user] });
         }
 
-        // --- COMANDOS ADMINISTRATIVOS ---
-        if (isAdm) {
-            if (messageContent === "!xp off") { config.xpAtivo = false; fs.writeFileSync(configFile, JSON.stringify(config)); return sock.sendMessage(from, { text: "🔘 XP Off." }); }
-            if (messageContent === "!xp on") { config.xpAtivo = true; fs.writeFileSync(configFile, JSON.stringify(config)); return sock.sendMessage(from, { text: "🔘 XP On." }); }
+        // COMANDOS DE ADM
+        if (isGroup && isAdm) {
             if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
             if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
             
-            // MARTELO DO BAN
+            if (messageContent === "!xp off") {
+                config.xpAtivo = false;
+                fs.writeFileSync(configFile, JSON.stringify(config));
+                return sock.sendMessage(from, { text: "🔘 XP desativado pelo Xerife." });
+            }
+            if (messageContent === "!xp on") {
+                config.xpAtivo = true;
+                fs.writeFileSync(configFile, JSON.stringify(config));
+                return sock.sendMessage(from, { text: "🔘 XP ativado! Podem upar." });
+            }
+
+            // CORREÇÃO DO BAN (Pega marcação ou resposta)
             if (messageContent.startsWith("!ban")) {
-                const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant;
                 if (mention) {
                     await sock.groupParticipantsUpdate(from, [mention], "remove");
-                    return sock.sendMessage(from, { text: "🔨 *JUSTIÇA!* Removido do cercado." });
+                    return sock.sendMessage(from, { text: "🔨 *MARTELO DO XERIFE:* Removido com sucesso!" });
                 }
             }
         }
 
         if (messageContent === "!menu") {
-            let sXp = config.xpAtivo ? "Ativo" : "Inativo";
-            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban (marque alguém)\n!xp on/off\n!abrir / !fechar\n\nXP: ${sXp}` });
-        }
-
-        // IA
-        const botId = sock.user.id.split(":")[0] + "@s.whatsapp.net";
-        const marcado = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.includes(botId);
-        if (!isGroup || marcado) {
-            try {
-                const result = await model.generateContent(`Você é o Patobot Xerife. Responda curto: ${messageContent}`);
-                await sock.sendMessage(from, { text: result.response.text() }, { quoted: msg });
-            } catch (e) { }
+            let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU* 🦆\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban | !fechar | !abrir\n!xp on | !xp off\n\n*STATUS XP:* ${statusXp}` });
         }
     });
 }
