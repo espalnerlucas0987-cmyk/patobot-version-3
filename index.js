@@ -1,5 +1,3 @@
-
-
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -24,7 +22,7 @@ const configFile = './config.json';
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
 if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true }));
 
-// --- FUNÇÃO DE PATENTES ATUALIZADA (ROBLOX RNG STYLE) ---
+// --- FUNÇÃO DE PATENTES ATUALIZADA ---
 function obterPatente(nivel) {
     if (nivel >= 200) return "🌌 *O ESCOLHIDO*";
     if (nivel >= 180) return "🔥 *SENHOR SUPREMO*";
@@ -47,9 +45,9 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: XERIFE ESTABILIZADO 🦆🔨
-    > SISTEMA: RNG XP (CHANCE 20%)
-    > PERFORMANCE: OTIMIZADA PARA RENDER ⛽
+    > STATUS: XERIFE REFORMULADO 🦆🔨
+    > SISTEMA: SUPER RNG XP (1/10 CHANCE)
+    > ACESSO: !PERFIL SÓ ADM 🔐
 `);
 
 app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
@@ -86,38 +84,12 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("group-participants.update", async (anu) => {
-        try {
-            const { id, participants, action } = anu;
-            if (action === "add" && id === GRUPO_ID) {
-                for (let num of participants) {
-                    let welcomeMsg = `Salve meu nobre! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) à *ART of Duck*! Mande três desenhos para avaliação. \n\n⚠️ Leia as regras!\n\nEu sou o **PATO BOT**, o Xerife. 🦆🎨`;
-                    await sock.sendMessage(id, { text: welcomeMsg, mentions: [num] });
-                }
-            }
-        } catch (err) { }
-    });
-
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === "close") {
             if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) connectToWhatsApp();
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
-            
-            setInterval(async () => {
-                const agora = new Date();
-                const hora = (agora.getUTCHours() - 3 + 24) % 24;
-                const minuto = agora.getUTCMinutes();
-                if (hora === 0 && minuto === 0) {
-                    await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado. 🦆💤" });
-                }
-                if (hora === 6 && minuto === 0) {
-                    await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nCercado aberto para as artes! 🎨" });
-                }
-            }, 60000);
         }
     });
 
@@ -141,46 +113,54 @@ async function connectToWhatsApp() {
             } catch (e) { isAdm = false; }
         }
 
-        // --- SISTEMA DE XP OTIMIZADO (CHANCE DE 20%) ---
+        // --- SISTEMA DE XP RARO (CHANCE DE 10%) ---
         if (config.xpAtivo && isGroup) {
-            const sorteio = Math.floor(Math.random() * 5); // 0 a 4
+            const sorteio = Math.floor(Math.random() * 10); // 0 a 9
             
-            if (sorteio === 0) { // Só ganha XP em 20% das mensagens
+            if (sorteio === 0) { 
                 if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
                 
-                // Ganho compensatório (mais alto por ser mais raro)
-                const ganhoXP = 50 + Math.floor(Math.random() * 101);
+                // Ganho de 500 a 1000 XP
+                const ganhoXP = 500 + Math.floor(Math.random() * 501);
                 dbs[user].xp += ganhoXP;
 
-                let prox = dbs[user].level * 200;
+                let prox = dbs[user].level * 2500; // Meta aumentada para compensar o ganho alto
                 if (dbs[user].xp >= prox) {
                     dbs[user].level += 1;
                     dbs[user].xp = 0;
                     const patente = obterPatente(dbs[user].level);
                     await sock.sendMessage(from, { 
-                        text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n📊 Agora você é nível *${dbs[user].level}*\n🏆 Patente: ${patente}`, 
+                        text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n📊 Aura nível: *${dbs[user].level}*\n🏆 Patente: ${patente}`, 
                         mentions: [user] 
                     });
                 }
-                // Salva apenas quando realmente processar o XP
                 fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
             }
         }
 
+        // --- ANTI-LINK ---
         if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
             await sock.sendMessage(from, { delete: msg.key });
             return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
 
-        if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
-        
-        if (messageContent === "!perfil") {
-            const { xp, level } = dbs[user] || { xp: 0, level: 1 };
-            const patente = obterPatente(level);
-            const textoPerfil = `👤 *STATUS DO ARTISTA*\n@${user.split("@")[0]}\n\n🏆 *PATENTE:* ${patente}\n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`;
-            return sock.sendMessage(from, { text: textoPerfil, mentions: [user] });
+        // --- COMANDO PERFIL (SÓ PARA ADM) ---
+        if (messageContent.startsWith("!perfil")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO:* Só ADM pode ver a aura dos membros." });
+
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
+                           msg.message.extendedTextMessage?.contextInfo?.participant || 
+                           user;
+
+            const data = dbs[target] || { xp: 0, level: 1 };
+            const patente = obterPatente(data.level);
+            const meta = data.level * 2500;
+
+            const textoPerfil = `👤 *FICHA DO ARTISTA*\n@${target.split("@")[0]}\n\n🏆 *PATENTE:* ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${meta}`;
+            return sock.sendMessage(from, { text: textoPerfil, mentions: [target] });
         }
 
+        // --- COMANDOS ADM ---
         if (isGroup && isAdm) {
             if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
             if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
@@ -203,11 +183,13 @@ async function connectToWhatsApp() {
             }
         }
 
+        // --- COMANDOS PÚBLICOS ---
+        if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
+        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
         if (messageContent === "!menu") {
             let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
-            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban | !fechar | !abrir | !xp on/off\n\n*STATUS XP:* ${statusXp}` });
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!ping | !regras\n\n*ADM:*\n!perfil @user | !ban | !fechar | !abrir\n!xp on/off\n\n*STATUS XP:* ${statusXp}` });
         }
-        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
     });
 }
 
