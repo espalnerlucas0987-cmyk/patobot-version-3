@@ -10,19 +10,33 @@ const {
 const pino = require("pino");
 const express = require("express");
 const axios = require("axios");
-const fs = require('fs'); // Necessário para salvar o XP
+const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 const MY_URL = "https://patobot-version-3.onrender.com"; 
 const GRUPO_ID = "120363404586258584@g.us"; 
 
-// ARQUIVOS DE DADOS (XP E CONFIG)
+// ARQUIVOS DE DADOS
 const xpFile = './usuarios_xp.json';
 const configFile = './config.json';
 
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
 if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true }));
+
+// --- FUNÇÃO DE PATENTES (ROBLOX STYLE) ---
+function obterPatente(nivel) {
+    if (nivel >= 200) return "🌌 *O ESCOLHIDO*";
+    if (nivel >= 180) return "🔥 *SENHOR SUPREMO*";
+    if (nivel >= 160) return "👾 *CHEFE FINAL*";
+    if (nivel >= 140) return "👑 *IMPERADOR*";
+    if (nivel >= 120) return "🦅 *ASCENDENTE*";
+    if (nivel >= 100) return "🔱 *CONQUISTADOR*";
+    if (nivel >= 80)  return "✨ *CROMÁTICO*";
+    if (nivel >= 60)  return "🌓 *SOMBRA*";
+    if (nivel >= 40)  return "🖌️ *VANGUARDA*";
+    return "🐣 *NOOB (Recruta)*";
+}
 
 console.log(`
 ██████╗  █████╗ ████████╗ ██████╗ ██████╗  ██████╗ ████████╗
@@ -32,18 +46,16 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: XERIFE ATUALIZADO 🦆🔨
-    > MÓDULO: XP + BAN CORRIGIDO + NOTURNO
-    > IA: DESATIVADA TEMPORARIAMENTE
+    > STATUS: XERIFE TURBINADO 🦆🔨
+    > SISTEMA: XP (25-125) + PATENTES
+    > TEMPORADA: ATIVA 🏆
 `);
 
 app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
 app.listen(PORT, () => console.log(`Servidor na porta ${PORT}`));
 
 setInterval(async () => {
-    try {
-        await axios.get(MY_URL); 
-    } catch (e) { }
+    try { await axios.get(MY_URL); } catch (e) { }
 }, 60000); 
 
 async function connectToWhatsApp() {
@@ -73,13 +85,12 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // BOAS-VINDAS ATUALIZADO
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
             if (action === "add" && id === GRUPO_ID) {
                 for (let num of participants) {
-                    let welcomeMsg = `Salve meu nobre! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) ao nosso grupo! Mande três desenhos para os ADMs avaliarem você e te colocarem na categoria certa. \n\n⚠️ E não se esqueça de olhar as regras!\n\nEu sou o **PATO BOT**, o Xerife. 🦆🎨`;
+                    let welcomeMsg = `Salve meu nobre! @${num.split("@")[0]} 👋\n\nSeja bem-vindo(a) à *ART of Duck*! Mande três desenhos para os ADMs avaliarem você. \n\n⚠️ Leia as regras!\n\nEu sou o **PATO BOT**, o Xerife. 🦆🎨`;
                     await sock.sendMessage(id, { text: welcomeMsg, mentions: [num] });
                 }
             }
@@ -93,14 +104,13 @@ async function connectToWhatsApp() {
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
             
-            // VIGIA NOTURNO (FECHA 00H, ABRE 06H)
             setInterval(async () => {
                 const agora = new Date();
                 const hora = (agora.getUTCHours() - 3 + 24) % 24;
                 const minuto = agora.getUTCMinutes();
                 if (hora === 0 && minuto === 0) {
                     await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado para descanso. 🦆💤" });
+                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado. 🦆💤" });
                 }
                 if (hora === 6 && minuto === 0) {
                     await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
@@ -119,11 +129,9 @@ async function connectToWhatsApp() {
         const user = msg.key.participant || msg.key.remoteJid;
         const messageContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
-        // CARREGAR DADOS
         let config = JSON.parse(fs.readFileSync(configFile));
         let dbs = JSON.parse(fs.readFileSync(xpFile));
 
-        // VERIFICAÇÃO DE ADM
         let isAdm = false;
         if (isGroup) {
             try {
@@ -132,62 +140,67 @@ async function connectToWhatsApp() {
             } catch (e) { isAdm = false; }
         }
 
-        // SISTEMA DE XP
+        // --- NOVO SISTEMA DE XP TURBINADO ---
         if (config.xpAtivo && isGroup) {
             if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
-            dbs[user].xp += Math.floor(Math.random() * 10) + 5;
+            
+            // Ganho: 25 fixos + Sorte de até 100
+            const ganhoXP = 25 + Math.floor(Math.random() * 101);
+            dbs[user].xp += ganhoXP;
+
             let prox = dbs[user].level * 200;
             if (dbs[user].xp >= prox) {
                 dbs[user].level += 1;
                 dbs[user].xp = 0;
-                await sock.sendMessage(from, { text: `🆙 *LEVEL UP!* @${user.split("@")[0]} subiu para o *Nível ${dbs[user].level}*!`, mentions: [user] });
+                const patente = obterPatente(dbs[user].level);
+                await sock.sendMessage(from, { 
+                    text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n📊 Agora você é nível *${dbs[user].level}*\n🏆 Patente: ${patente}`, 
+                    mentions: [user] 
+                });
             }
             fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
         }
 
-        // ANTI-LINK
         if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
             await sock.sendMessage(from, { delete: msg.key });
             return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
 
-        // COMANDOS PÚBLICOS
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
-        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
+        
+        // --- PERFIL ATUALIZADO ---
         if (messageContent === "!perfil") {
             const { xp, level } = dbs[user] || { xp: 0, level: 1 };
-            return sock.sendMessage(from, { text: `👤 *STATUS:* \n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`, mentions: [user] });
+            const patente = obterPatente(level);
+            const textoPerfil = `👤 *STATUS DO ARTISTA*\n@${user.split("@")[0]}\n\n🏆 *PATENTE:* ${patente}\n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`;
+            return sock.sendMessage(from, { text: textoPerfil, mentions: [user] });
         }
 
-        // COMANDOS DE ADM
         if (isGroup && isAdm) {
             if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
             if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
-            
             if (messageContent === "!xp off") {
                 config.xpAtivo = false;
                 fs.writeFileSync(configFile, JSON.stringify(config));
-                return sock.sendMessage(from, { text: "🔘 XP desativado pelo Xerife." });
+                return sock.sendMessage(from, { text: "🔘 XP desativado." });
             }
             if (messageContent === "!xp on") {
                 config.xpAtivo = true;
                 fs.writeFileSync(configFile, JSON.stringify(config));
-                return sock.sendMessage(from, { text: "🔘 XP ativado! Podem upar." });
+                return sock.sendMessage(from, { text: "🔘 XP ativado!" });
             }
-
-            // CORREÇÃO DO BAN (Pega marcação ou resposta)
             if (messageContent.startsWith("!ban")) {
                 const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant;
                 if (mention) {
                     await sock.groupParticipantsUpdate(from, [mention], "remove");
-                    return sock.sendMessage(from, { text: "🔨 *MARTELO DO XERIFE:* Removido com sucesso!" });
+                    return sock.sendMessage(from, { text: "🔨 *MARTELO DO XERIFE!*" });
                 }
             }
         }
 
         if (messageContent === "!menu") {
             let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
-            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU* 🦆\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban | !fechar | !abrir\n!xp on | !xp off\n\n*STATUS XP:* ${statusXp}` });
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban | !fechar | !abrir | !xp on/off\n\n*STATUS XP:* ${statusXp}` });
         }
     });
 }
