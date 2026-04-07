@@ -14,7 +14,7 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS) - CORRIGIDO PARA EVITAR ERRO 404
+// CONFIGURAÇÕES DA IA (CHAVE DO LUCAS) - v1beta
 const genAI = new GoogleGenerativeAI("AIzaSyByVmLtblUeWwHuQmysp_D0cDsACoI1cpY");
 const model = genAI.getGenerativeModel({ 
     model: "gemini-1.5-flash",
@@ -24,10 +24,9 @@ const model = genAI.getGenerativeModel({
 const MY_URL = "https://patobot-version-3.onrender.com"; 
 const GRUPO_ID = "120363404586258584@g.us"; 
 
-// ARQUIVOS DE DADOS (XP E CONFIG)
+// ARQUIVOS DE DADOS
 const xpFile = './usuarios_xp.json';
 const configFile = './config.json';
-
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
 if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true }));
 
@@ -39,20 +38,15 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: SISTEMA REESTRUTURADO 🛠️
-    > MÓDULO: XP + IA CORRIGIDA + BOAS-VINDAS 🦆
-    > DESENVOLVEDOR: LUCAS / ART OF DUCK
+    > STATUS: XERIFE COMPLETO COM MARTELO DO BAN 🔨
+    > MÓDULO: XP + IA + BOAS-VINDAS + NOTURNO
 `);
 
-app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
+app.get("/", (req, res) => res.send("Patobot online! ⛽"));
 app.listen(PORT, () => console.log(`Servidor na porta ${PORT}`));
 
-// FUNÇÃO GASOLINA (AUTO-PING 1 MINUTO)
 setInterval(async () => {
-    try {
-        await axios.get(MY_URL); 
-        console.log("⛽ Gasolina injetada!");
-    } catch (e) { }
+    try { await axios.get(MY_URL); } catch (e) { }
 }, 60000); 
 
 async function connectToWhatsApp() {
@@ -76,13 +70,13 @@ async function connectToWhatsApp() {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
                 console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
-            } catch (error) { console.error("Erro no código:", error); }
+            } catch (error) { }
         }, 3000);
     }
 
     sock.ev.on("creds.update", saveCreds);
 
-    // --- MENSAGEM DE BOAS-VINDAS PERSONALIZADA ---
+    // BOAS-VINDAS PERSONALIZADA
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const { id, participants, action } = anu;
@@ -92,15 +86,29 @@ async function connectToWhatsApp() {
                     await sock.sendMessage(id, { text: welcomeMsg, mentions: [num] });
                 }
             }
-        } catch (err) { console.log(err); }
+        } catch (err) { }
     });
 
     sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === "close") {
-            if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) connectToWhatsApp();
-        } else if (connection === "open") {
+        const { connection } = update;
+        if (connection === "close") connectToWhatsApp();
+        else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
+            
+            // MODO NOTURNO
+            setInterval(async () => {
+                const agora = new Date();
+                const hora = (agora.getUTCHours() - 3 + 24) % 24;
+                const minuto = agora.getUTCMinutes();
+                if (hora === 0 && minuto === 0) {
+                    await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
+                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado para descanso. 🦆💤" });
+                }
+                if (hora === 6 && minuto === 0) {
+                    await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
+                    await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nCercado aberto para as artes! 🎨" });
+                }
+            }, 60000);
         }
     });
 
@@ -113,20 +121,18 @@ async function connectToWhatsApp() {
         const user = msg.key.participant || msg.key.remoteJid;
         const messageContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
-        // CARREGAR CONFIGS E XP
         let config = JSON.parse(fs.readFileSync(configFile));
         let dbs = JSON.parse(fs.readFileSync(xpFile));
 
-        // VERIFICAÇÃO DE ADM
         let isAdm = false;
         if (isGroup) {
             try {
                 const meta = await sock.groupMetadata(from);
                 isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
-            } catch (e) { isAdm = false; }
+            } catch (e) { }
         }
 
-        // --- SISTEMA DE XP ---
+        // XP
         if (config.xpAtivo && isGroup) {
             if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
             dbs[user].xp += Math.floor(Math.random() * 10) + 5;
@@ -145,46 +151,44 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
 
-        // --- COMANDOS ---
+        // COMANDOS GERAIS
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
-        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
-        
+        if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS:* 1. Respeito | 2. Sem +18 | 3. Sem Spam." });
         if (messageContent === "!perfil") {
-            if (!config.xpAtivo) return sock.sendMessage(from, { text: "❌ O sistema de XP está desativado." });
             const { xp, level } = dbs[user] || { xp: 0, level: 1 };
-            return sock.sendMessage(from, { text: `👤 *STATUS:* \n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`, mentions: [user] });
+            return sock.sendMessage(from, { text: `👤 *PERFIL:* \n📊 Nível: ${level}\n✨ XP: ${xp}/${level*200}`, mentions: [user] });
         }
 
-        // CONTROLE DE XP (SÓ ADM)
+        // --- COMANDOS ADMINISTRATIVOS ---
         if (isAdm) {
-            if (messageContent === "!xp off") {
-                config.xpAtivo = false;
-                fs.writeFileSync(configFile, JSON.stringify(config));
-                return sock.sendMessage(from, { text: "🔘 XP desativado." });
-            }
-            if (messageContent === "!xp on") {
-                config.xpAtivo = true;
-                fs.writeFileSync(configFile, JSON.stringify(config));
-                return sock.sendMessage(from, { text: "🔘 XP ativado." });
+            if (messageContent === "!xp off") { config.xpAtivo = false; fs.writeFileSync(configFile, JSON.stringify(config)); return sock.sendMessage(from, { text: "🔘 XP Off." }); }
+            if (messageContent === "!xp on") { config.xpAtivo = true; fs.writeFileSync(configFile, JSON.stringify(config)); return sock.sendMessage(from, { text: "🔘 XP On." }); }
+            if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
+            if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
+            
+            // MARTELO DO BAN
+            if (messageContent.startsWith("!ban")) {
+                const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                if (mention) {
+                    await sock.groupParticipantsUpdate(from, [mention], "remove");
+                    return sock.sendMessage(from, { text: "🔨 *JUSTIÇA!* Removido do cercado." });
+                }
             }
         }
 
         if (messageContent === "!menu") {
-            let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
-            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU* \n\n!regras | !ping | !perfil\n!xp on/off (ADM)\n\nXP atual: ${statusXp}\n🤖 Marque o bot para usar a IA!` });
+            let sXp = config.xpAtivo ? "Ativo" : "Inativo";
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!perfil | !ping | !regras\n\n*ADM:*\n!ban (marque alguém)\n!xp on/off\n!abrir / !fechar\n\nXP: ${sXp}` });
         }
 
-        // SISTEMA DE IA (CORRIGIDO)
+        // IA
         const botId = sock.user.id.split(":")[0] + "@s.whatsapp.net";
-        const mencionado = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.includes(botId);
-        const respondido = msg.message.extendedTextMessage?.contextInfo?.participant === botId;
-
-        if (!isGroup || mencionado || respondido) {
+        const marcado = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.includes(botId);
+        if (!isGroup || marcado) {
             try {
-                const prompt = `Você é o Patobot, Xerife da ART of Duck. Lucas é seu criador. Ajude com desenhos de forma curta. Pergunta: ${messageContent}`;
-                const result = await model.generateContent(prompt);
+                const result = await model.generateContent(`Você é o Patobot Xerife. Responda curto: ${messageContent}`);
                 await sock.sendMessage(from, { text: result.response.text() }, { quoted: msg });
-            } catch (err) { console.error("Erro IA:", err); }
+            } catch (e) { }
         }
     });
 }
