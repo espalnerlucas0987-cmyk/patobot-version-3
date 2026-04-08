@@ -46,8 +46,8 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
     > STATUS: XERIFE COM SUPER PODERES 🦆⚡
-    > COMANDO: !UP [NIVEL] ATIVADO
-    > ACESSO: LUCAS (DONO) 👑
+    > COMANDO: !UP [NIVEL] (LUCAS UNLOCKED)
+    > PERFORMANCE: RNG 1/10 (ANTI-LAG) ⛽
 `);
 
 app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
@@ -134,13 +134,13 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- COMANDO DE SUPER ADM: !UP (SÓ PRO LUCAS) ---
+        // --- COMANDO DE SUPER ADM: !UP (EXCLUSIVO LUCAS) ---
         if (messageContent.startsWith("!up")) {
-            const meuNumero = "5582991754240@s.whatsapp.net"; 
-            const sender = msg.key.participant || msg.key.remoteJid;
+            // Lógica que ignora se tem o 9 ou não no seu ID
+            const isLucas = user.includes("558291754240") || user.includes("5582991754240");
 
-            if (sender !== meuNumero) {
-                return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO:* Só o dono pode usar esse comando." });
+            if (!isLucas) {
+                return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO:* Comando restrito ao Lucas (Dono)." });
             }
 
             const args = messageContent.split(" ");
@@ -203,8 +203,11 @@ async function connectToWhatsApp() {
         if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS ART OF DUCK* 🦆\n1. Respeito.\n2. Sem +18.\n3. Sem Spam." });
         if (messageContent === "!menu") {
             let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
-            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!ping | !regras\n\n*ADM:*\n!perfil @user | !ban | !fechar | !abrir\n!xp on/off\n\n*STATUS XP:* ${statusXp}` });
+            let extra = (user.includes("558291754240") || user.includes("5582991754240")) ? "\n!up [lvl] @user (Dono)" : "";
+            return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!ping | !regras\n\n*ADM:*\n!perfil @user | !ban | !fechar | !abrir\n!xp on/off${extra}\n\n*STATUS XP:* ${statusXp}` });
         }
+        
+        // ANTI-LINK
         if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
             await sock.sendMessage(from, { delete: msg.key });
             return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
