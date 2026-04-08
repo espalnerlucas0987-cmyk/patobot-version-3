@@ -45,9 +45,9 @@ console.log(`
 ██║     ██║  ██║   ██║   ╚██████╔╝██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
-    > STATUS: XERIFE REFORMULADO 🦆🔨
-    > SISTEMA: SUPER RNG XP (1/10 CHANCE)
-    > ACESSO: !PERFIL SÓ ADM 🔐
+    > STATUS: XERIFE COM SUPER PODERES 🦆⚡
+    > COMANDO: !UP [NIVEL] ATIVADO
+    > ACESSO: LUCAS (DONO) 👑
 `);
 
 app.get("/", (req, res) => res.send("Patobot Pro online! ⛽🦆"));
@@ -115,16 +115,12 @@ async function connectToWhatsApp() {
 
         // --- SISTEMA DE XP RARO (CHANCE DE 10%) ---
         if (config.xpAtivo && isGroup) {
-            const sorteio = Math.floor(Math.random() * 10); // 0 a 9
-            
+            const sorteio = Math.floor(Math.random() * 10);
             if (sorteio === 0) { 
                 if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
-                
-                // Ganho de 500 a 1000 XP
                 const ganhoXP = 500 + Math.floor(Math.random() * 501);
                 dbs[user].xp += ganhoXP;
-
-                let prox = dbs[user].level * 2500; // Meta aumentada para compensar o ganho alto
+                let prox = dbs[user].level * 2500;
                 if (dbs[user].xp >= prox) {
                     dbs[user].level += 1;
                     dbs[user].xp = 0;
@@ -138,29 +134,48 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- ANTI-LINK ---
-        if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
-            await sock.sendMessage(from, { delete: msg.key });
-            return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
+        // --- COMANDO DE SUPER ADM: !UP (SÓ PRO LUCAS) ---
+        if (messageContent.startsWith("!up")) {
+            const meuNumero = "5582991754240@s.whatsapp.net"; 
+            const sender = msg.key.participant || msg.key.remoteJid;
+
+            if (sender !== meuNumero) {
+                return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO:* Só o dono pode usar esse comando." });
+            }
+
+            const args = messageContent.split(" ");
+            const novoNivel = parseInt(args[1]);
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
+                           msg.message.extendedTextMessage?.contextInfo?.participant;
+
+            if (!novoNivel || !target) {
+                return sock.sendMessage(from, { text: "💡 *USE:* !up [nível] @membro" });
+            }
+
+            if (!dbs[target]) dbs[target] = { xp: 0, level: 1 };
+            dbs[target].level = novoNivel;
+            dbs[target].xp = 0;
+            const patente = obterPatente(novoNivel);
+            fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
+
+            return sock.sendMessage(from, { 
+                text: `⚡ *UPGRADE REALIZADO!* @${target.split("@")[0]}\n📊 Nível setado para: ${novoNivel}\n🏆 Patente: ${patente}`, 
+                mentions: [target] 
+            });
         }
 
-        // --- COMANDO PERFIL (SÓ PARA ADM) ---
+        // --- PERFIL (SÓ ADM) ---
         if (messageContent.startsWith("!perfil")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO:* Só ADM pode ver a aura dos membros." });
-
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO:* Só ADM pode ver a aura." });
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
-                           msg.message.extendedTextMessage?.contextInfo?.participant || 
-                           user;
-
+                           msg.message.extendedTextMessage?.contextInfo?.participant || user;
             const data = dbs[target] || { xp: 0, level: 1 };
             const patente = obterPatente(data.level);
-            const meta = data.level * 2500;
-
-            const textoPerfil = `👤 *FICHA DO ARTISTA*\n@${target.split("@")[0]}\n\n🏆 *PATENTE:* ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${meta}`;
+            const textoPerfil = `👤 *FICHA DO ARTISTA*\n@${target.split("@")[0]}\n\n🏆 *PATENTE:* ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${data.level * 2500}`;
             return sock.sendMessage(from, { text: textoPerfil, mentions: [target] });
         }
 
-        // --- COMANDOS ADM ---
+        // --- COMANDOS ADM PADRÃO ---
         if (isGroup && isAdm) {
             if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
             if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
@@ -189,6 +204,10 @@ async function connectToWhatsApp() {
         if (messageContent === "!menu") {
             let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
             return sock.sendMessage(from, { text: `🦆 *PATOBOT MENU*\n\n!ping | !regras\n\n*ADM:*\n!perfil @user | !ban | !fechar | !abrir\n!xp on/off\n\n*STATUS XP:* ${statusXp}` });
+        }
+        if (isGroup && !isAdm && (messageContent.includes("chat.whatsapp.com") || messageContent.includes("http"))) {
+            await sock.sendMessage(from, { delete: msg.key });
+            return sock.sendMessage(from, { text: "🚫 *LINK PROIBIDO!*" });
         }
     });
 }
