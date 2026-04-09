@@ -46,7 +46,7 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
     > STATUS: XERIFE 24H ATIVADO 🦆⛽
-    > MODO NOTURNO: BLINDADO ANTI-CRASH (00h-06h)
+    > PROTEÇÃO: ANTI-CRASH + ANTI-SPAM DE METADATA
     > XP BALANCEADO: 1/20 (GANHO: 500-1000)
     > ACESSO: COMANDO OCULTO 🔑
 `);
@@ -99,7 +99,7 @@ async function connectToWhatsApp() {
                 const hora = (agora.getUTCHours() - 3 + 24) % 24; 
                 const minuto = agora.getUTCMinutes();
                 
-                // TRAVA: Só executa se o bot estiver totalmente conectado (Evita o erro Precondition Required)
+                // TRAVA: Só executa se o bot estiver totalmente conectado
                 if (sock && sock.authState && sock.authState.creds && sock.authState.creds.registered) {
                     try {
                         if (hora === 0 && minuto === 0) {
@@ -148,8 +148,12 @@ async function connectToWhatsApp() {
         let config = JSON.parse(fs.readFileSync(configFile));
         let dbs = JSON.parse(fs.readFileSync(xpFile));
 
+        // --- SISTEMA ANTI-SPAM DE METADATA (A SOLUÇÃO DO RATE-OVERLIMIT) ---
         let isAdm = false;
-        if (isGroup) {
+        const comandosAdm = ["! up", "!perfil", "!fechar", "!abrir", "!ban"];
+        const requerAdm = comandosAdm.some(cmd => messageContent.startsWith(cmd));
+
+        if (isGroup && requerAdm) {
             try {
                 const meta = await sock.groupMetadata(from);
                 isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
@@ -183,15 +187,13 @@ async function connectToWhatsApp() {
         }
 
         // --- COMANDO SUPER ADM (SECRETO) ---
-        // O comando agora é "! up" (com um espaço depois do ponto de exclamação)
         if (messageContent.startsWith("! up")) {
             if (!isAdm) {
                 return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             }
 
-            // Como tem um espaço extra, ajustamos a leitura do comando
             const args = messageContent.split(/ +/); 
-            const novoNivel = parseInt(args[2]); // O nível agora é a terceira palavra: "!" "up" "50"
+            const novoNivel = parseInt(args[2]); 
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                            msg.message.extendedTextMessage?.contextInfo?.participant;
 
