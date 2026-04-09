@@ -46,8 +46,9 @@ console.log(`
 ╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
                                                             
     > STATUS: XERIFE 24H ATIVADO 🦆⛽
-    > MODO NOTURNO: RECUPERADO (00h-06h)
-    > ACESSO: LUCAS UNLOCKED 🔑
+    > MODO NOTURNO: BLINDADO ANTI-CRASH (00h-06h)
+    > XP BALANCEADO: 1/20 (GANHO: 500-1000)
+    > ACESSO: COMANDO OCULTO 🔑
 `);
 
 // --- MANTER 24H ONLINE (RENDER) ---
@@ -92,21 +93,46 @@ async function connectToWhatsApp() {
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
             
-            // --- LOOP MODO NOTURNO (TOQUE DE RECOLHER) ---
+            // --- LOOP MODO NOTURNO BLINDADO ANTI-CRASH ---
             setInterval(async () => {
                 const agora = new Date();
                 const hora = (agora.getUTCHours() - 3 + 24) % 24; 
                 const minuto = agora.getUTCMinutes();
                 
-                if (hora === 0 && minuto === 0) {
-                    await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado. 🦆💤" });
-                }
-                if (hora === 6 && minuto === 0) {
-                    await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
-                    await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nCercado aberto para as artes! 🎨" });
+                // TRAVA: Só executa se o bot estiver totalmente conectado (Evita o erro Precondition Required)
+                if (sock && sock.authState && sock.authState.creds && sock.authState.creds.registered) {
+                    try {
+                        if (hora === 0 && minuto === 0) {
+                            await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
+                            await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado. 🦆💤" });
+                        }
+                        if (hora === 6 && minuto === 0) {
+                            await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
+                            await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nCercado aberto para as artes! 🎨" });
+                        }
+                    } catch (error) {
+                        console.log("⚠️ Oscilação de rede no Modo Noturno. Bot protegido de crash.");
+                    }
                 }
             }, 60000);
+        }
+    });
+
+    // --- MODO DE BOAS-VINDAS REATIVADO COM REGRA DE AVALIAÇÃO ---
+    sock.ev.on("group-participants.update", async (anu) => {
+        if (anu.action === 'add') {
+            const from = anu.id;
+            const person = anu.participants[0];
+            const patente = obterPatente(1);
+            
+            const textoBoasVindas = `🎨 *BEM-VINDO(A) AO ART OF DUCK!* 🦆\n\nOlá @${person.split("@")[0]}, sinta-se em casa!\n\n⚠️ *REGRA IMPORTANTE:* Você precisa mandar *3 desenhos* no grupo para um ADM avaliar!\n\n🏆 *SUA PATENTE:* ${patente}\n📊 *NÍVEL:* 1\n\nUse *!regras* para ver as diretrizes do grupo e divirta-se! ✨`;
+
+            try {
+                await sock.sendMessage(from, { 
+                    text: textoBoasVindas, 
+                    mentions: [person] 
+                });
+            } catch(e) {}
         }
     });
 
@@ -130,14 +156,19 @@ async function connectToWhatsApp() {
             } catch (e) { isAdm = false; }
         }
 
-        // --- SISTEMA DE XP RARO (1/10 CHANCE) ---
+        // --- SISTEMA DE XP BALANCEADO (1/20 CHANCE) ---
         if (config.xpAtivo && isGroup) {
-            const sorteio = Math.floor(Math.random() * 10);
+            const sorteio = Math.floor(Math.random() * 20); // 1 chance em 20 mensagens
             if (sorteio === 0) { 
                 if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
-                const ganhoXP = 500 + Math.floor(Math.random() * 501);
+                
+                // Ganho entre 500 e 1000 XP
+                const ganhoXP = 500 + Math.floor(Math.random() * 501); 
                 dbs[user].xp += ganhoXP;
-                let prox = dbs[user].level * 2500;
+                
+                // Nível volta ao normal (1000 por nível)
+                let prox = dbs[user].level * 1000; 
+                
                 if (dbs[user].xp >= prox) {
                     dbs[user].level += 1;
                     dbs[user].xp = 0;
@@ -151,20 +182,20 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- COMANDO SUPER ADM (LUCAS) ---
-        if (messageContent.startsWith("!up")) {
-            const isLucas = user.includes("91754240"); // Blindado contra erro de dígito 9
-
-            if (!isLucas) {
-                return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.* Só o Lucas tem esse poder." });
+        // --- COMANDO SUPER ADM (SECRETO) ---
+        // O comando agora é "! up" (com um espaço depois do ponto de exclamação)
+        if (messageContent.startsWith("! up")) {
+            if (!isAdm) {
+                return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             }
 
-            const args = messageContent.split(" ");
-            const novoNivel = parseInt(args[1]);
+            // Como tem um espaço extra, ajustamos a leitura do comando
+            const args = messageContent.split(/ +/); 
+            const novoNivel = parseInt(args[2]); // O nível agora é a terceira palavra: "!" "up" "50"
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                            msg.message.extendedTextMessage?.contextInfo?.participant;
 
-            if (!novoNivel || !target) return sock.sendMessage(from, { text: "💡 *USE:* !up [nível] @membro" });
+            if (!novoNivel || !target) return sock.sendMessage(from, { text: "💡 *USE O SEGREDO:* ! up [nível] @membro" });
 
             if (!dbs[target]) dbs[target] = { xp: 0, level: 1 };
             dbs[target].level = novoNivel;
@@ -186,7 +217,7 @@ async function connectToWhatsApp() {
             const data = dbs[target] || { xp: 0, level: 1 };
             const patente = obterPatente(data.level);
             return sock.sendMessage(from, { 
-                text: `👤 *FICHA:* @${target.split("@")[0]}\n🏆 Patente: ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${data.level * 2500}`, 
+                text: `👤 *FICHA:* @${target.split("@")[0]}\n🏆 Patente: ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${data.level * 1000}`, 
                 mentions: [target] 
             });
         }
@@ -208,8 +239,7 @@ async function connectToWhatsApp() {
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
         if (messageContent === "!menu") {
             let statusXp = config.xpAtivo ? "Ativo" : "Inativo";
-            let extra = user.includes("91754240") ? "\n!up [lvl] @user" : "";
-            return sock.sendMessage(from, { text: `🦆 *PATO MENU*\n\n!ping | !regras\n\n*ADM:*\n!perfil @user | !ban | !fechar | !abrir${extra}\n\n*XP:* ${statusXp}` });
+            return sock.sendMessage(from, { text: `🦆 *PATO MENU*\n\n!ping | !regras\n\n*ADM:*\n!perfil @user | !ban | !fechar | !abrir\n\n*XP:* ${statusXp}` });
         }
         if (messageContent === "!regras") return sock.sendMessage(from, { text: "🎨 *REGRAS:* Respeito, sem +18 e sem spam." });
 
@@ -220,4 +250,3 @@ async function connectToWhatsApp() {
 }
 
 connectToWhatsApp();
-                    
