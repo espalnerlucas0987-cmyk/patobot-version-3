@@ -9,25 +9,29 @@ const pino = require("pino");
 const express = require("express");
 const axios = require("axios");
 const fs = require('fs');
-const fsP = require('fs').promises; 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 const MY_URL = "https://patobot-version-3.onrender.com"; 
 const GRUPO_ID = "120363404586258584@g.us"; 
 
+// ARQUIVOS DE DADOS
 const xpFile = './usuarios_xp.json';
 const configFile = './config.json';
 const muralFile = './mural.json';
 
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
-if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true, status: "online", mutados: [] }));
+if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true, mutados: [] }));
 if (!fs.existsSync(muralFile)) fs.writeFileSync(muralFile, JSON.stringify({ tema: "Nenhum desafio ativo no momento." }));
 
-const uptimeBot = Date.now();
-const processadas = new Set();
+// --- VARIÁVEIS DE CONTROLE ---
+const spamTracker = {};
+const avisosSpam = {};
 const cooldowns = new Set();
+const processadas = new Set(); // FIX: Evita repetição de mensagens
+const uptimeBot = Date.now();
 
+// --- FUNÇÃO DE PATENTES ---
 function obterPatente(nivel) {
     if (nivel >= 100) return "🌌 *O ESCOLHIDO*";
     if (nivel >= 90)  return "🔥 *SENHOR SUPREMO*";
@@ -42,6 +46,7 @@ function obterPatente(nivel) {
     return "🐣 *NOOB*";
 }
 
+// --- LOG DE INICIALIZAÇÃO ---
 console.log(`
 \x1b[33m      ,~~.
      (  6 )-_,
@@ -97,26 +102,45 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // --- EVENTOS DE GRUPO (CHECK ESTRANGEIRO E SAÍDA) ---
-    sock.ev.on("group-participants.update", async (anu) => {
-        const { id, participants, action } = anu;
-        if (id !== GRUPO_ID) return;
-        for (let num of participants) {
-            if (action === 'remove') {
-                await sock.sendMessage(id, { text: `👋 *F NO CHAT!* @${num.split("@")[0]} saiu do cercado.`, mentions: [num] });
-            }
-            if (action === 'add' && !num.startsWith('55')) {
-                await sock.sendMessage(id, { text: `⚠️ *ALERTA:* @${num.split("@")[0]} é estrangeiro. Cuidado!`, mentions: [num] });
-            }
-        }
-    });
-
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === "close") {
             if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) connectToWhatsApp();
         } else if (connection === "open") {
             console.log("✅ CONEXÃO ESTABELECIDA!");
+            
+            setInterval(async () => {
+                const agora = new Date();
+                const hora = (agora.getUTCHours() - 3 + 24) % 24; 
+                const minuto = agora.getUTCMinutes();
+                
+                if (sock && sock.authState && sock.authState.creds && sock.authState.creds.registered) {
+                    try {
+                        if (hora === 0 && minuto === 0) {
+                            await sock.groupSettingUpdate(GRUPO_ID, 'announcement');
+                            await sock.sendMessage(GRUPO_ID, { text: "🌙 *TOQUE DE RECOLHER!* \nGrupo fechado. 🦆💤" });
+                        }
+                        if (hora === 6 && minuto === 0) {
+                            await sock.groupSettingUpdate(GRUPO_ID, 'not_announcement');
+                            await sock.sendMessage(GRUPO_ID, { text: "☀️ *BOM DIA!* \nCercado aberto para as artes! 🎨" });
+                        }
+                    } catch (error) {
+                        console.log("⚠️ Oscilação de rede no Modo Noturno.");
+                    }
+                }
+            }, 60000);
+        }
+    });
+
+    sock.ev.on("group-participants.update", async (anu) => {
+        if (anu.action === 'add') {
+            const from = anu.id;
+            const person = anu.participants[0];
+            const patente = obterPatente(1);
+            const textoBoasVindas = `🎨 *BEM-VINDO(A) AO ART OF DUCK!* 🦆\n\nOlá @${person.split("@")[0]}, sinta-se em casa!\n\n⚠️ *REGRA IMPORTANTE:* Você precisa mandar *3 desenhos* no grupo para um ADM avaliar!\n\n🏆 *SUA PATENTE:* ${patente}\n📊 *NÍVEL:* 1\n\nUse *!regras* para ver as diretrizes do grupo! ✨`;
+            try {
+                await sock.sendMessage(from, { text: textoBoasVindas, mentions: [person] });
+            } catch(e) {}
         }
     });
 
@@ -124,123 +148,243 @@ async function connectToWhatsApp() {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
+        // --- FIX: BUG DE REPETIÇÃO ---
         const msgId = msg.key.id;
         if (processadas.has(msgId)) return;
         processadas.add(msgId);
         setTimeout(() => processadas.delete(msgId), 10000);
 
         const from = msg.key.remoteJid;
+        const isGroup = from.endsWith('@g.us');
         const user = msg.key.participant || msg.key.remoteJid;
-        const messageContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
-        const isComando = messageContent.startsWith("!");
-        
-        let config = JSON.parse(fs.readFileSync(configFile));
-        let dbs = JSON.parse(fs.readFileSync(xpFile));
+        const agora = Date.now();
 
-        // --- SISTEMA DE MUDO ---
+        // --- FIX: BUG DE IMAGEM/LEGENDA ---
+        const messageContent = (
+            msg.message.conversation || 
+            msg.message.extendedTextMessage?.text || 
+            msg.message.imageMessage?.caption || 
+            msg.message.videoMessage?.caption || 
+            ""
+        ).toLowerCase();
+
+        if (!messageContent && !msg.message.imageMessage) return; // Ignora se estiver totalmente vazio
+        
+        const isComando = messageContent.startsWith("!");
+
+        let config = JSON.parse(fs.readFileSync(configFile));
+        if (!config.mutados) config.mutados = [];
+
+        // --- SISTEMA DE MUTE ---
         if (config.mutados.includes(user)) {
-            return await sock.sendMessage(from, { delete: msg.key });
+            try { await sock.sendMessage(from, { delete: msg.key }); } catch(e) {}
+            return;
         }
 
-        // --- VERIFICAÇÃO DE ADM ---
+        // --- LOCKDOWN 2s ---
+        if (isComando) {
+            if (cooldowns.has(user)) return;
+            cooldowns.add(user);
+            setTimeout(() => cooldowns.delete(user), 2000);
+        }
+
+        // --- REAÇÕES ---
+        if (isGroup && !isComando) {
+            if (Math.floor(Math.random() * 20) === 0) {
+                const emojis = ["🦆", "🎨", "🔥", "🗿", "🍷", "👾", "✨", "👀"];
+                const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                try { await sock.sendMessage(from, { react: { text: emoji, key: msg.key } }); } catch(e) {}
+            }
+        }
+
+        // --- ANTI-SPAM ---
+        if (isGroup) {
+            if (spamTracker[user] && (agora - spamTracker[user]) < 1500) {
+                if (!avisosSpam[user]) avisosSpam[user] = 0;
+                avisosSpam[user]++;
+                if (avisosSpam[user] === 5) {
+                    await sock.sendMessage(from, { text: `⚠️ *@${user.split("@")[0]}, PARE COM O SPAM! Próxima é ban.*`, mentions: [user] });
+                } else if (avisosSpam[user] >= 10) {
+                    try {
+                        const meta = await sock.groupMetadata(from);
+                        const isAdmSpam = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
+                        if (!isAdmSpam) {
+                            await sock.sendMessage(from, { text: "🔨 *SPAM DETECTADO. ADEUS!*" });
+                            await sock.groupParticipantsUpdate(from, [user], "remove");
+                        }
+                    } catch (e) {}
+                }
+                return; 
+            }
+            spamTracker[user] = agora;
+            setTimeout(() => { if (Date.now() - spamTracker[user] > 5000) avisosSpam[user] = 0; }, 5000);
+        }
+
+        let dbs = JSON.parse(fs.readFileSync(xpFile));
+        let mural = JSON.parse(fs.readFileSync(muralFile));
+
         let isAdm = false;
-        try {
-            const meta = await sock.groupMetadata(from);
-            isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
-        } catch (e) {}
+        if (isGroup) {
+            try {
+                const meta = await sock.groupMetadata(from);
+                isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
+            } catch (e) { isAdm = false; }
+        }
 
         // --- SISTEMA DE XP ---
-        if (config.xpAtivo && !isComando) {
-            if (Math.floor(Math.random() * 15) === 0) { 
+        if (config.xpAtivo && isGroup && !isComando) {
+            const sorteio = Math.floor(Math.random() * 20);
+            if (sorteio === 0) { 
                 if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
-                dbs[user].xp += 200;
-                if (dbs[user].xp >= dbs[user].level * 1000) {
-                    dbs[user].level += 1; dbs[user].xp = 0;
-                    await sock.sendMessage(from, { text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n🏆 Patente: ${obterPatente(dbs[user].level)}`, mentions: [user] });
+                const ganhoXP = 500 + Math.floor(Math.random() * 501); 
+                dbs[user].xp += ganhoXP;
+                let prox = dbs[user].level * 1000; 
+                if (dbs[user].xp >= prox) {
+                    dbs[user].level += 1;
+                    dbs[user].xp = 0;
+                    const patente = obterPatente(dbs[user].level);
+                    await sock.sendMessage(from, { 
+                        text: `🆙 *LEVEL UP!* @${user.split("@")[0]}\n📊 Aura nível: *${dbs[user].level}*\n🏆 Patente: ${patente}`, 
+                        mentions: [user] 
+                    });
                 }
                 fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
             }
         }
 
-        if (!isComando) return;
+        // --- COMANDOS ADM ---
+        if (messageContent.startsWith("!aviso")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            const avisoTexto = messageContent.replace("!aviso", "").trim();
+            if (!avisoTexto) return sock.sendMessage(from, { text: "💡 Use: !aviso [texto]" });
+            const meta = await sock.groupMetadata(from);
+            return sock.sendMessage(from, { text: `📢 *AVISO IMPORTANTE* 📢\n\n${avisoTexto.toUpperCase()}\n\n@everyone`, mentions: meta.participants.map(p => p.id) });
+        }
 
-        // --- COOLDOWN ---
-        if (cooldowns.has(user)) return;
-        cooldowns.add(user);
-        setTimeout(() => cooldowns.delete(user), 2000);
-
-        // --- COMANDOS DE STATUS ---
-        if (messageContent === "!perfil") {
-            if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
-            const patente = obterPatente(dbs[user].level);
-            return sock.sendMessage(from, { text: `👤 *PERFIL:*\n\n📊 Nível: ${dbs[user].level}\n✨ XP: ${dbs[user].xp}\n🏆 Patente: ${patente}`, mentions: [user] });
+        if (messageContent.startsWith("!settema")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            const novoTema = messageContent.replace("!settema", "").trim();
+            if (!novoTema) return sock.sendMessage(from, { text: "💡 Use: !settema [descrição do desafio]" });
+            mural.tema = novoTema;
+            fs.writeFileSync(muralFile, JSON.stringify(mural, null, 2));
+            return sock.sendMessage(from, { text: `✅ *MURAL ATUALIZADO:* \n${novoTema}` });
         }
 
         if (messageContent === "!ranking") {
-            const top = Object.entries(dbs)
-                .sort(([, a], [, b]) => (b.level * 1000 + b.xp) - (a.level * 1000 + a.xp))
-                .slice(0, 10);
-            let rankingTxt = "🏆 *TOP 10 ARTISTAS:* \n\n";
-            top.forEach(([id, data], i) => {
-                rankingTxt += `${i + 1}º - @${id.split("@")[0]} | Nível: ${data.level}\n`;
-            });
-            return sock.sendMessage(from, { text: rankingTxt, mentions: top.map(t => t[0]) });
+            let arr = Object.keys(dbs).map(key => ({ id: key, ...dbs[key] }));
+            arr.sort((a, b) => b.level - a.level || b.xp - a.xp);
+            let top5 = arr.slice(0, 5);
+            let txt = "🏆 *RANKING ART OF DUCK* 🏆\n\n";
+            top5.forEach((u, i) => { txt += `${i + 1}º - @${u.id.split("@")[0]}\n📊 Nível: ${u.level} | ${obterPatente(u.level)}\n\n`; });
+            return sock.sendMessage(from, { text: txt, mentions: top5.map(u => u.id) });
         }
 
-        // --- COMANDOS ADM & GERAL ---
-        if (messageContent === "!tempo") {
-            const totalMs = Date.now() - uptimeBot;
-            const horas = Math.floor(totalMs / 3600000);
-            const mins = Math.floor((totalMs % 3600000) / 60000);
-            return sock.sendMessage(from, { text: `⏳ *ESTOU ACORDADO HÁ:* ${horas}h e ${mins}min.` });
+        if (messageContent.startsWith("! up")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            const args = messageContent.split(/ +/); 
+            const novoNivel = parseInt(args[2]); 
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant;
+            if (!novoNivel || !target) return sock.sendMessage(from, { text: "💡 *USE:* ! up [nível] @membro" });
+            if (!dbs[target]) dbs[target] = { xp: 0, level: 1 };
+            dbs[target].level = novoNivel;
+            dbs[target].xp = 0;
+            const patente = obterPatente(novoNivel);
+            fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
+            return sock.sendMessage(from, { text: `⚡ *UPGRADE:* @${target.split("@")[0]} agora é nível ${novoNivel}!\n🏆 Patente: ${patente}`, mentions: [target] });
         }
 
-        if (messageContent === "!memoria") {
-            const usado = process.memoryUsage().heapUsed / 1024 / 1024;
-            return sock.sendMessage(from, { text: `🧠 *RAM USADA:* ${usado.toFixed(2)} MB.` });
+        if (messageContent.startsWith("!limparxp")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: "💡 Marque alguém para resetar o XP." });
+            delete dbs[target];
+            fs.writeFileSync(xpFile, JSON.stringify(dbs, null, 2));
+            return sock.sendMessage(from, { text: `🧹 *XP RESETADO:* @${target.split("@")[0]} voltou ao início.`, mentions: [target] });
         }
 
+        if (messageContent.startsWith("!perfil")) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant || user;
+            const data = dbs[target] || { xp: 0, level: 1 };
+            const patente = obterPatente(data.level);
+            return sock.sendMessage(from, { text: `👤 *FICHA:* @${target.split("@")[0]}\n🏆 Patente: ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${data.level * 1000}`, mentions: [target] });
+        }
+
+        // --- MODERAÇÃO ---
         if (messageContent.startsWith("!mutar") && isAdm) {
             const alvo = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!alvo) return sock.sendMessage(from, { text: "💡 Marque quem deve calar a boca." });
-            config.mutados.push(alvo);
+            if (!alvo) return sock.sendMessage(from, { text: "💡 Marque quem deve ser mutado." });
+            if (!config.mutados.includes(alvo)) config.mutados.push(alvo);
             fs.writeFileSync(configFile, JSON.stringify(config));
-            return sock.sendMessage(from, { text: `🤐 @${alvo.split("@")[0]} mutado.`, mentions: [alvo] });
+            return sock.sendMessage(from, { text: `🤐 @${alvo.split("@")[0]} foi silenciado pelo Xerife.`, mentions: [alvo] });
         }
 
         if (messageContent.startsWith("!desmutar") && isAdm) {
             const alvo = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!alvo) return sock.sendMessage(from, { text: "💡 Marque quem deseja liberar." });
+            if (!alvo) return sock.sendMessage(from, { text: "💡 Marque quem deseja desmutar." });
             config.mutados = config.mutados.filter(u => u !== alvo);
             fs.writeFileSync(configFile, JSON.stringify(config));
-            return sock.sendMessage(from, { text: `🔊 @${alvo.split("@")[0]} liberado.`, mentions: [alvo] });
+            return sock.sendMessage(from, { text: `🔊 @${alvo.split("@")[0]} foi perdoado e pode falar.`, mentions: [alvo] });
+        }
+
+        if (messageContent === "!tempo") {
+            const totalMs = Date.now() - uptimeBot;
+            const horas = Math.floor(totalMs / 3600000);
+            const mins = Math.floor((totalMs % 3600000) / 60000);
+            return sock.sendMessage(from, { text: `⏳ *UPTIME:* Pato rodando liso há ${horas}h e ${mins}min.` });
+        }
+
+        if (messageContent === "!memoria") {
+            const usado = process.memoryUsage().heapUsed / 1024 / 1024;
+            return sock.sendMessage(from, { text: `🧠 *RAM:* ${usado.toFixed(2)} MB queimando no Render.` });
         }
 
         if (messageContent === "!sorteiopremio" && isAdm) {
             const meta = await sock.groupMetadata(from);
             const sorteado = meta.participants[Math.floor(Math.random() * meta.participants.length)].id;
-            return sock.sendMessage(from, { text: `🏆 *VENCEDOR:* @${sorteado.split("@")[0]}`, mentions: [sorteado] });
+            return sock.sendMessage(from, { text: `🏆 *ROLETA DA ARTE:*\n\nO grande vencedor é... @${sorteado.split("@")[0]}! 🎉`, mentions: [sorteado] });
         }
 
         if (messageContent.startsWith("!votação") && isAdm) {
             const pauta = messageContent.replace("!votação", "").trim();
-            return sock.sendMessage(from, { text: `🗳️ *VOTAÇÃO:* ${pauta || 'Qual a melhor?'}\n👍 Sim | 👎 Não` });
+            return sock.sendMessage(from, { text: `🗳️ *NOVA VOTAÇÃO:*\n\n"${pauta || 'Qual a melhor arte?'}"\n\n👍 Aprovo | 👎 Reprovo` });
         }
 
         if (messageContent === "!destruir" && isAdm) {
-            await sock.sendMessage(from, { text: "⚠️ Destruindo grupo em 5s..." });
-            return setTimeout(() => sock.sendMessage(from, { text: "💥 Brincadeira!" }), 5000);
+            await sock.sendMessage(from, { text: "⚠️ ATIVANDO PROTOCOLO DE DESTRUIÇÃO..." });
+            return setTimeout(() => sock.sendMessage(from, { text: "💥 Zueira! O Pato é da paz. 🦆" }), 4000);
         }
 
+        if (messageContent === "!loja") {
+            return sock.sendMessage(from, { text: `🛒 *MERCADO DO PATO*\n\n1️⃣ Mudar Nick (5k XP)\n2️⃣ Escolher Tema (10k XP)\n3️⃣ Status VIP (50k XP)\n\n_Chame um ADM para comprar!_` });
+        }
+
+        if (messageContent === "!pato") return sock.sendMessage(from, { text: "Quack! 🦆" });
+        if (messageContent.startsWith("!pergunta")) {
+            const respostas = ["Com certeza!", "Nem pensar.", "Talvez...", "Pergunta lá no posto Ipiranga.", "O Pato aprova!"];
+            const r = respostas[Math.floor(Math.random() * respostas.length)];
+            return sock.sendMessage(from, { text: `🦆 🔮 *O Pato Diz:* ${r}` });
+        }
+
+        if (isGroup && isAdm) {
+            if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
+            if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
+            if (messageContent.startsWith("!ban")) {
+                const mention = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                if (mention) { await sock.groupParticipantsUpdate(from, [mention], "remove"); return sock.sendMessage(from, { text: "🔨 *MARTELADA!*" }); }
+            }
+        }
+
+        // --- MENU ---
+        if (messageContent === "!tema") return sock.sendMessage(from, { text: `🎨 *DESAFIO DA SEMANA:* \n\n${mural.tema}` });
+        if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
         if (messageContent === "!menu") {
-            const menuTxt = `🦆 *PATOBOT V3.1* 🦆\n\n🔹 !perfil | !ranking | !ping | !tempo | !memoria\n🔸 !pato | !regras | !tema | !link | !loja\n🔹 !mutar | !votação | !sorteiopremio | !backup`;
+            const menuTxt = `🦆 *MENU PATOBOT PRO V3* 🦆\n\n🔹 *GERAL:*\n!ping | !regras | !tema\n!perfil | !ranking | !loja\n!pato | !pergunta\n\n🔸 *SISTEMA:*\n!tempo | !memoria\n\n🛡️ *ADM:*\n!ban | !mutar | !desmutar\n!fechar | !abrir | !aviso\n!votação | !sorteiopremio\n\n✨ *XP (ADM):*\n! up | !limparxp | !settema`;
             return sock.sendMessage(from, { text: menuTxt });
         }
         
-        if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! ⛽" });
-        if (messageContent === "!backup" && isAdm) {
-            await sock.sendMessage(user, { document: fs.readFileSync(xpFile), mimetype: 'application/json', fileName: 'usuarios_xp.json' });
-            return sock.sendMessage(from, { text: "✅ Backup enviado!" });
+        if (messageContent === "!regras") {
+            const textoRegras = `🎨 *ART OF DUCK - ESSENCIAL* 🦆\n\n1️⃣ *RESPEITO:* Proibido ofensas.\n2️⃣ *CONTEÚDO:* Proibido +18.\n3️⃣ *SPAM:* Não flode.\n4️⃣ *LINKS:* Proibido convites.\n5️⃣ *DESENHOS:* Novos mandam *3 artes*.\n\n⚠️ *BAN:* Violar gera ban imediato!`;
+            return sock.sendMessage(from, { text: textoRegras });
         }
     });
 }
