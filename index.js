@@ -43,7 +43,7 @@ function obterPatente(nivel) {
     if (nivel >= 30)  return "⚡ *CHADE*";
     if (nivel >= 20)  return "🍷 *SIGMA*";
     if (nivel >= 10)  return "🖌️ *VANGUARDA*"; 
-    return "🐣 *NOOB*";
+    return "🐣 *PRO*";
 }
 
 // --- LOG DE INICIALIZAÇÃO ---
@@ -303,10 +303,26 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("!perfil")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" }); 
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant || user;
             const data = dbs[target] || { xp: 0, level: 1 };
             const patente = obterPatente(data.level);
             return sock.sendMessage(from, { text: `👤 *FICHA:* @${target.split("@")[0]}\n🏆 Patente: ${patente}\n📊 Nível: ${data.level}\n✨ XP: ${data.xp}/${data.level * 1000}`, mentions: [target] });
+        }
+
+        // --- NOVO COMANDO: BACKUP DE XP ---
+        if (messageContent === "!backup") {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            try {
+                return sock.sendMessage(from, { 
+                    document: fs.readFileSync(xpFile), 
+                    mimetype: 'application/json', 
+                    fileName: 'backup_xp_patobot.json',
+                    caption: '📦 *AQUI ESTÁ O BACKUP DO SISTEMA DE XP!*'
+                });
+            } catch (e) {
+                return sock.sendMessage(from, { text: "❌ *Erro ao gerar o backup. Arquivo não encontrado ou protegido.*" });
+            }
         }
 
         // --- MODERAÇÃO ---
@@ -378,7 +394,8 @@ async function connectToWhatsApp() {
         if (messageContent === "!tema") return sock.sendMessage(from, { text: `🎨 *DESAFIO DA SEMANA:* \n\n${mural.tema}` });
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
         if (messageContent === "!menu") {
-            const menuTxt = `🦆 *MENU PATOBOT PRO V3* 🦆\n\n🔹 *GERAL:*\n!ping | !regras | !tema\n!perfil | !ranking | !loja\n!pato | !pergunta\n\n🔸 *SISTEMA:*\n!tempo | !memoria\n\n🛡️ *ADM:*\n!ban | !mutar | !desmutar\n!fechar | !abrir | !aviso\n!votação | !sorteiopremio\n\n✨ *XP (ADM):*\n! up | !limparxp | !settema`;
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" }); 
+            const menuTxt = `🦆 *MENU PATOBOT PRO V3* 🦆\n\n🔹 *GERAL:*\n!ping | !regras | !tema\n!perfil | !ranking | !loja\n!pato | !pergunta\n\n🔸 *SISTEMA:*\n!tempo | !memoria\n\n🛡️ *ADM:*\n!ban | !mutar | !desmutar\n!fechar | !abrir | !aviso\n!votação | !sorteiopremio\n\n✨ *XP (ADM):*\n! up | !limparxp | !settema | !backup`;
             return sock.sendMessage(from, { text: menuTxt });
         }
         
