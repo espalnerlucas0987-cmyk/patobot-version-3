@@ -21,16 +21,19 @@ const configFile = './config.json';
 const muralFile = './mural.json';
 
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
-if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true, mutados: [] }));
+if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true, mutados: [], manutencao: false }));
 if (!fs.existsSync(muralFile)) fs.writeFileSync(muralFile, JSON.stringify({ tema: "Nenhum desafio ativo no momento.", calendario: "Nenhum evento marcado." }));
 
 // --- VARIÁVEIS DE CONTROLE ---
 const spamTracker = {};
 const avisosSpam = {};
-const cmdSpamTracker = {}; // NOVO: Rastreador de Spam de Comandos (147)
+const cmdSpamTracker = {}; 
 const cooldowns = new Set();
 const processadas = new Set(); 
 const uptimeBot = Date.now();
+
+// SISTEMA DE CACHE PARA EVITAR ERRO 428 (Connection Closed)
+const groupCache = {};
 
 // --- FUNÇÃO DE PATENTES ---
 function obterPatente(nivel) {
@@ -143,7 +146,6 @@ async function connectToWhatsApp() {
             try { await sock.sendMessage(from, { text: textoBoasVindas, mentions: [person] }); } catch(e) {}
         }
 
-        // NOVO: 98. Adeus (Sarcástico)
         if (anu.action === 'remove') {
             try { await sock.sendMessage(from, { text: `🦆 @${person.split("@")[0]} meteu o pé! Já vai tarde, menos um pra gastar o grafite da galera.`, mentions: [person] }); } catch(e) {}
         }
@@ -176,6 +178,33 @@ async function connectToWhatsApp() {
         const isComando = messageContent.startsWith("!");
         let config = JSON.parse(fs.readFileSync(configFile));
         if (!config.mutados) config.mutados = [];
+        if (config.manutencao === undefined) config.manutencao = false;
+
+        let isAdm = false;
+        let membrosGrupo = [];
+
+        // CACHE DE GRUPO (Evita erro 428 de limite de requisições)
+        if (isGroup) {
+            if (!groupCache[from] || (agora - groupCache[from].lastFetch > 300000)) { // Atualiza a cada 5 mins
+                try {
+                    const meta = await sock.groupMetadata(from);
+                    groupCache[from] = {
+                        admins: meta.participants.filter(p => p.admin).map(p => p.id),
+                        participantes: meta.participants.map(p => p.id),
+                        lastFetch: agora
+                    };
+                } catch (e) {
+                    if (!groupCache[from]) groupCache[from] = { admins: [], participantes: [], lastFetch: agora };
+                }
+            }
+            isAdm = groupCache[from].admins.includes(user);
+            membrosGrupo = groupCache[from].participantes;
+        }
+
+        // --- SISTEMA DE MANUTENÇÃO ---
+        if (isComando && config.manutencao && !isAdm) {
+            return sock.sendMessage(from, { text: "⚠️ *MODO MANUTENÇÃO ATIVADO.* \nO Pato está ajustando os motores. Apenas ADMs podem usar comandos agora. 🦆🛠️" });
+        }
 
         // --- SISTEMA DE MUTE ---
         if (config.mutados.includes(user)) {
@@ -183,7 +212,7 @@ async function connectToWhatsApp() {
             return;
         }
 
-        // --- LOCKDOWN & SPAM DE COMANDO (147) ---
+        // --- LOCKDOWN & SPAM DE COMANDO ---
         if (isComando) {
             if (cooldowns.has(user)) return;
             cooldowns.add(user);
@@ -192,9 +221,9 @@ async function connectToWhatsApp() {
             if (isGroup) {
                 if (!cmdSpamTracker[user]) cmdSpamTracker[user] = [];
                 cmdSpamTracker[user].push(agora);
-                cmdSpamTracker[user] = cmdSpamTracker[user].filter(t => agora - t < 10000); // Msgs nos ultimos 10s
+                cmdSpamTracker[user] = cmdSpamTracker[user].filter(t => agora - t < 10000); 
                 
-                if (cmdSpamTracker[user].length >= 5) { // 5 comandos em 10 seg
+                if (cmdSpamTracker[user].length >= 5) { 
                     if (!config.mutados.includes(user)) {
                         config.mutados.push(user);
                         fs.writeFileSync(configFile, JSON.stringify(config));
@@ -229,9 +258,7 @@ async function connectToWhatsApp() {
                     await sock.sendMessage(from, { text: `⚠️ *@${user.split("@")[0]}, PARE COM O SPAM! Próxima é ban.*`, mentions: [user] });
                 } else if (avisosSpam[user] >= 10) {
                     try {
-                        const meta = await sock.groupMetadata(from);
-                        const isAdmSpam = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
-                        if (!isAdmSpam) {
+                        if (!isAdm) {
                             await sock.sendMessage(from, { text: "🔨 *SPAM DETECTADO. ADEUS!*" });
                             await sock.groupParticipantsUpdate(from, [user], "remove");
                         }
@@ -245,14 +272,6 @@ async function connectToWhatsApp() {
 
         let dbs = JSON.parse(fs.readFileSync(xpFile));
         let mural = JSON.parse(fs.readFileSync(muralFile));
-
-        let isAdm = false;
-        if (isGroup) {
-            try {
-                const meta = await sock.groupMetadata(from);
-                isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
-            } catch (e) { isAdm = false; }
-        }
 
         // --- SISTEMA DE XP ---
         if (config.xpAtivo && isGroup && !isComando) {
@@ -275,7 +294,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        // NOVO: 122. Comando Escondido (Easter Egg)
+        // Easter Egg
         if (!isComando && isGroup && messageContent.includes("pato de borracha")) {
             if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
             dbs[user].xp += 1000;
@@ -284,12 +303,27 @@ async function connectToWhatsApp() {
         }
 
         // --- COMANDOS ADM ---
+        if (messageContent.startsWith("!manutencao")) {
+            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            const modo = messageContent.split(" ")[1];
+            if (modo === "on") {
+                config.manutencao = true;
+                fs.writeFileSync(configFile, JSON.stringify(config));
+                return sock.sendMessage(from, { text: "🛠️ *MODO MANUTENÇÃO ATIVADO!* \nAgora apenas ADMs podem usar comandos." });
+            } else if (modo === "off") {
+                config.manutencao = false;
+                fs.writeFileSync(configFile, JSON.stringify(config));
+                return sock.sendMessage(from, { text: "✅ *MODO MANUTENÇÃO DESATIVADO!* \nTodos os membros podem usar os comandos." });
+            } else {
+                return sock.sendMessage(from, { text: "💡 Use: !manutencao on ou !manutencao off" });
+            }
+        }
+
         if (messageContent.startsWith("!aviso")) {
             if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const avisoTexto = messageContent.replace("!aviso", "").trim();
             if (!avisoTexto) return sock.sendMessage(from, { text: "💡 Use: !aviso [texto]" });
-            const meta = await sock.groupMetadata(from);
-            return sock.sendMessage(from, { text: `📢 *AVISO IMPORTANTE* 📢\n\n${avisoTexto.toUpperCase()}\n\n@everyone`, mentions: meta.participants.map(p => p.id) });
+            return sock.sendMessage(from, { text: `📢 *AVISO IMPORTANTE* 📢\n\n${avisoTexto.toUpperCase()}\n\n@everyone`, mentions: membrosGrupo });
         }
 
         if (messageContent.startsWith("!settema")) {
@@ -301,7 +335,6 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `✅ *MURAL ATUALIZADO:* \n${novoTema}` });
         }
 
-        // NOVO: 108. Setar Calendário
         if (messageContent.startsWith("!setcalendario")) {
             if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const cal = messageContent.replace("!setcalendario", "").trim();
@@ -311,7 +344,6 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `✅ *CALENDÁRIO ATUALIZADO!*` });
         }
 
-        // NOVO: 6. Modo Silêncio Temporário
         if (messageContent.startsWith("!shiu")) {
             if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const args = messageContent.split(" ");
@@ -327,7 +359,6 @@ async function connectToWhatsApp() {
             return;
         }
 
-        // NOVO: 57. Contagem Regressiva
         if (messageContent.startsWith("!contagem")) {
             if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const args = messageContent.split(" ");
@@ -337,8 +368,7 @@ async function connectToWhatsApp() {
             
             await sock.sendMessage(from, { text: `⏳ *CONTAGEM INICIADA!* \nMotivo: ${motivo}\nTempo: ${mins} minutos.` });
             setTimeout(async () => {
-                const meta = await sock.groupMetadata(from);
-                await sock.sendMessage(from, { text: `⏰ *ACABOU O TEMPO!* \n\n${motivo.toUpperCase()}`, mentions: meta.participants.map(p => p.id) });
+                await sock.sendMessage(from, { text: `⏰ *ACABOU O TEMPO!* \n\n${motivo.toUpperCase()}`, mentions: membrosGrupo });
             }, mins * 60000);
             return;
         }
@@ -381,7 +411,6 @@ async function connectToWhatsApp() {
             const data = dbs[target] || { xp: 0, level: 1 };
             const patente = obterPatente(data.level);
             
-            // NOVO: 43. Nível de Aura Visual
             let aura = "🌫️ Aura Comum";
             if (data.level >= 50) aura = "🔥 Chama Ancestral";
             else if (data.level >= 30) aura = "⚡ Relâmpago Divino";
@@ -434,17 +463,15 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `🧠 *RAM:* ${usado.toFixed(2)} MB queimando no Render.` });
         }
 
-        // NOVO: 139. Saúde do Bot (ADM)
         if (messageContent === "!saude") {
             if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const usadoMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
             const totalMs = Date.now() - uptimeBot;
             const horas = Math.floor(totalMs / 3600000);
             const mins = Math.floor((totalMs % 3600000) / 60000);
-            return sock.sendMessage(from, { text: `🏥 *SAÚDE DO PATO:*\n\n🔋 RAM: ${usadoMB} MB\n⏱️ Uptime: ${horas}h ${mins}m\n🛡️ Mute Spam: ON\n🦆 Status: 100% Grasno` });
+            return sock.sendMessage(from, { text: `🏥 *SAÚDE DO PATO:*\n\n🔋 RAM: ${usadoMB} MB\n⏱️ Uptime: ${horas}h ${mins}m\n🛡️ Manutenção: ${config.manutencao ? 'ON' : 'OFF'}\n🦆 Status: 100% Grasno` });
         }
 
-        // NOVO: 140. Ping Real (ADM)
         if (messageContent === "!pingreal") {
             if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const timestamp = msg.messageTimestamp * 1000;
@@ -453,8 +480,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent === "!sorteiopremio" && isAdm) {
-            const meta = await sock.groupMetadata(from);
-            const sorteado = meta.participants[Math.floor(Math.random() * meta.participants.length)].id;
+            const sorteado = membrosGrupo[Math.floor(Math.random() * membrosGrupo.length)];
             return sock.sendMessage(from, { text: `🏆 *ROLETA DA ARTE:*\n\nO grande vencedor é... @${sorteado.split("@")[0]}! 🎉`, mentions: [sorteado] });
         }
 
@@ -464,16 +490,12 @@ async function connectToWhatsApp() {
         }
 
         // --- COMANDOS PARA TODOS ---
-
-        // NOVO: 108. Ver Calendário
         if (messageContent === "!calendario") {
             return sock.sendMessage(from, { text: `📅 *CALENDÁRIO ART OF DUCK:*\n\n${mural.calendario}` });
         }
 
-        // NOVO: 19. Collab Aleatório
         if (messageContent === "!collab" && isGroup) {
-            const meta = await sock.groupMetadata(from);
-            const membros = meta.participants.map(p => p.id).filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
+            const membros = membrosGrupo.filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
             if (membros.length < 2) return;
             const art1 = membros[Math.floor(Math.random() * membros.length)];
             let art2 = membros[Math.floor(Math.random() * membros.length)];
@@ -485,7 +507,6 @@ async function connectToWhatsApp() {
             });
         }
 
-        // NOVO: 55. Roleta Russa
         if (messageContent === "!roletarussa" && isGroup) {
             const sorte = Math.floor(Math.random() * 6);
             if (sorte === 0) {
@@ -503,7 +524,6 @@ async function connectToWhatsApp() {
             return;
         }
 
-        // NOVO: 69. Lembrete
         if (messageContent.startsWith("!lembrar")) {
             const args = messageContent.split(" ");
             const tempoStr = args[1]; 
@@ -518,7 +538,6 @@ async function connectToWhatsApp() {
             return;
         }
 
-        // NOVO: 76. Frase do Dia
         if (messageContent === "!frasedodia") {
             const frases = [
                 "A arte diz o inominável; exprime o inexprimível. - Salvador Dalí",
@@ -531,7 +550,6 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `📖 *SABEDORIA DO PATO:*\n\n"${f}"` });
         }
 
-        // NOVO: 78. Elogio Aleatório
         if (messageContent === "!elogio") {
             const elogios = ["é um monstro sagrado nas artes!", "tem o traço abençoado pelos deuses do nanquim.", "é a lenda viva desse grupo.", "tem uma aura de puro talento.", "desenha tanto que dá inveja no Da Vinci."];
             const elg = elogios[Math.floor(Math.random() * elogios.length)];
@@ -577,8 +595,9 @@ async function connectToWhatsApp() {
 !pato | !pergunta 
 
 🛡️ *ADM GERAL:*
-!saude | !pingreal | !tempo | !memoria
-!ban | !mutar | !desmutar | !shiu
+!manutencao on/off | !saude | !pingreal
+!tempo | !memoria | !ban
+!mutar | !desmutar | !shiu
 !fechar | !abrir | !aviso
 !votação | !sorteiopremio | !contagem
 
