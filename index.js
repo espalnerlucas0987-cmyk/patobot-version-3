@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 8080;
 
 const MY_URL = "https://patobot-version-3.onrender.com"; 
 const GRUPO_ID = "120363404586258584@g.us"; 
+const DONO_ID = "558291583743@s.whatsapp.net"; // SEU NÚMERO COMO DONO SUPREMO
 
 // ARQUIVOS DE DADOS
 const xpFile = './usuarios_xp.json';
@@ -21,19 +22,17 @@ const configFile = './config.json';
 const muralFile = './mural.json';
 
 if (!fs.existsSync(xpFile)) fs.writeFileSync(xpFile, JSON.stringify({}));
-if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true, mutados: [], manutencao: false }));
+if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ xpAtivo: true, mutados: [] }));
 if (!fs.existsSync(muralFile)) fs.writeFileSync(muralFile, JSON.stringify({ tema: "Nenhum desafio ativo no momento.", calendario: "Nenhum evento marcado." }));
 
 // --- VARIÁVEIS DE CONTROLE ---
+let modoManutencao = false; // NOVO: Controle da Manutenção/Bloqueio
 const spamTracker = {};
 const avisosSpam = {};
 const cmdSpamTracker = {}; 
 const cooldowns = new Set();
 const processadas = new Set(); 
 const uptimeBot = Date.now();
-
-// SISTEMA DE CACHE PARA EVITAR ERRO 428 (Connection Closed)
-const groupCache = {};
 
 // --- FUNÇÃO DE PATENTES ---
 function obterPatente(nivel) {
@@ -146,6 +145,7 @@ async function connectToWhatsApp() {
             try { await sock.sendMessage(from, { text: textoBoasVindas, mentions: [person] }); } catch(e) {}
         }
 
+        // NOVO: 98. Adeus (Sarcástico)
         if (anu.action === 'remove') {
             try { await sock.sendMessage(from, { text: `🦆 @${person.split("@")[0]} meteu o pé! Já vai tarde, menos um pra gastar o grafite da galera.`, mentions: [person] }); } catch(e) {}
         }
@@ -176,34 +176,23 @@ async function connectToWhatsApp() {
         if (!messageContent && !msg.message.imageMessage) return; 
         
         const isComando = messageContent.startsWith("!");
+        const isDono = user === DONO_ID || user.includes("558291754240"); // Verifica se é você
+
         let config = JSON.parse(fs.readFileSync(configFile));
         if (!config.mutados) config.mutados = [];
-        if (config.manutencao === undefined) config.manutencao = false;
 
+        // --- PROTEÇÃO ANTI-QUEDA PARA BUSCAR ADMs ---
         let isAdm = false;
-        let membrosGrupo = [];
-
-        // CACHE DE GRUPO (Evita erro 428 de limite de requisições)
         if (isGroup) {
-            if (!groupCache[from] || (agora - groupCache[from].lastFetch > 300000)) { // Atualiza a cada 5 mins
-                try {
-                    const meta = await sock.groupMetadata(from);
-                    groupCache[from] = {
-                        admins: meta.participants.filter(p => p.admin).map(p => p.id),
-                        participantes: meta.participants.map(p => p.id),
-                        lastFetch: agora
-                    };
-                } catch (e) {
-                    if (!groupCache[from]) groupCache[from] = { admins: [], participantes: [], lastFetch: agora };
+            try {
+                const meta = await sock.groupMetadata(from).catch(() => null);
+                if (meta) {
+                    isAdm = meta.participants.filter(p => p.admin).map(p => p.id).includes(user);
                 }
+            } catch (e) { 
+                isAdm = false; 
+                console.log("⚠️ Erro ao buscar ADMs, mas o bot continua vivo.");
             }
-            isAdm = groupCache[from].admins.includes(user);
-            membrosGrupo = groupCache[from].participantes;
-        }
-
-        // --- SISTEMA DE MANUTENÇÃO ---
-        if (isComando && config.manutencao && !isAdm) {
-            return sock.sendMessage(from, { text: "⚠️ *MODO MANUTENÇÃO ATIVADO.* \nO Pato está ajustando os motores. Apenas ADMs podem usar comandos agora. 🦆🛠️" });
         }
 
         // --- SISTEMA DE MUTE ---
@@ -212,7 +201,12 @@ async function connectToWhatsApp() {
             return;
         }
 
-        // --- LOCKDOWN & SPAM DE COMANDO ---
+        // --- TRAVA DE MANUTENÇÃO (Impede membros comuns de usar comandos) ---
+        if (isComando && modoManutencao && !isAdm && !isDono) {
+            return sock.sendMessage(from, { text: "🚧 *MODO MANUTENÇÃO:* O bot está pausado para melhorias ou a tropa abusou muito. Apenas ADMs podem usar comandos agora! 🦆🛠️" });
+        }
+
+        // --- LOCKDOWN & SPAM DE COMANDO (147) ---
         if (isComando) {
             if (cooldowns.has(user)) return;
             cooldowns.add(user);
@@ -221,9 +215,9 @@ async function connectToWhatsApp() {
             if (isGroup) {
                 if (!cmdSpamTracker[user]) cmdSpamTracker[user] = [];
                 cmdSpamTracker[user].push(agora);
-                cmdSpamTracker[user] = cmdSpamTracker[user].filter(t => agora - t < 10000); 
+                cmdSpamTracker[user] = cmdSpamTracker[user].filter(t => agora - t < 10000); // Msgs nos ultimos 10s
                 
-                if (cmdSpamTracker[user].length >= 5) { 
+                if (cmdSpamTracker[user].length >= 5) { // 5 comandos em 10 seg
                     if (!config.mutados.includes(user)) {
                         config.mutados.push(user);
                         fs.writeFileSync(configFile, JSON.stringify(config));
@@ -258,7 +252,9 @@ async function connectToWhatsApp() {
                     await sock.sendMessage(from, { text: `⚠️ *@${user.split("@")[0]}, PARE COM O SPAM! Próxima é ban.*`, mentions: [user] });
                 } else if (avisosSpam[user] >= 10) {
                     try {
-                        if (!isAdm) {
+                        const meta = await sock.groupMetadata(from).catch(() => null);
+                        const isAdmSpam = meta ? meta.participants.filter(p => p.admin).map(p => p.id).includes(user) : false;
+                        if (!isAdmSpam && !isDono) {
                             await sock.sendMessage(from, { text: "🔨 *SPAM DETECTADO. ADEUS!*" });
                             await sock.groupParticipantsUpdate(from, [user], "remove");
                         }
@@ -294,7 +290,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        // Easter Egg
+        // NOVO: 122. Comando Escondido (Easter Egg)
         if (!isComando && isGroup && messageContent.includes("pato de borracha")) {
             if (!dbs[user]) dbs[user] = { xp: 0, level: 1 };
             dbs[user].xp += 1000;
@@ -303,31 +299,25 @@ async function connectToWhatsApp() {
         }
 
         // --- COMANDOS ADM ---
-        if (messageContent.startsWith("!manutencao")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
-            const modo = messageContent.split(" ")[1];
-            if (modo === "on") {
-                config.manutencao = true;
-                fs.writeFileSync(configFile, JSON.stringify(config));
-                return sock.sendMessage(from, { text: "🛠️ *MODO MANUTENÇÃO ATIVADO!* \nAgora apenas ADMs podem usar comandos." });
-            } else if (modo === "off") {
-                config.manutencao = false;
-                fs.writeFileSync(configFile, JSON.stringify(config));
-                return sock.sendMessage(from, { text: "✅ *MODO MANUTENÇÃO DESATIVADO!* \nTodos os membros podem usar os comandos." });
-            } else {
-                return sock.sendMessage(from, { text: "💡 Use: !manutencao on ou !manutencao off" });
-            }
+        if (messageContent === "!manutencao" || messageContent === "!parou") {
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            modoManutencao = !modoManutencao;
+            const status = modoManutencao ? "ATIVADO 🚧" : "DESATIVADO ✅";
+            return sock.sendMessage(from, { text: `⚠️ *MODO MANUTENÇÃO:* ${status}\n\n${modoManutencao ? "Apenas ADMs podem usar o bot agora." : "O bot está liberado para a tropa!"}` });
         }
 
         if (messageContent.startsWith("!aviso")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const avisoTexto = messageContent.replace("!aviso", "").trim();
             if (!avisoTexto) return sock.sendMessage(from, { text: "💡 Use: !aviso [texto]" });
-            return sock.sendMessage(from, { text: `📢 *AVISO IMPORTANTE* 📢\n\n${avisoTexto.toUpperCase()}\n\n@everyone`, mentions: membrosGrupo });
+            const meta = await sock.groupMetadata(from).catch(() => null);
+            if (meta) {
+                return sock.sendMessage(from, { text: `📢 *AVISO IMPORTANTE* 📢\n\n${avisoTexto.toUpperCase()}\n\n@everyone`, mentions: meta.participants.map(p => p.id) });
+            }
         }
 
         if (messageContent.startsWith("!settema")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const novoTema = messageContent.replace("!settema", "").trim();
             if (!novoTema) return sock.sendMessage(from, { text: "💡 Use: !settema [descrição]" });
             mural.tema = novoTema;
@@ -336,7 +326,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("!setcalendario")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const cal = messageContent.replace("!setcalendario", "").trim();
             if (!cal) return sock.sendMessage(from, { text: "💡 Use: !setcalendario [data e evento]" });
             mural.calendario = cal;
@@ -345,7 +335,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("!shiu")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const args = messageContent.split(" ");
             const mins = parseInt(args[1]) || 5;
             await sock.groupSettingUpdate(from, 'announcement');
@@ -360,7 +350,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("!contagem")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const args = messageContent.split(" ");
             const mins = parseInt(args[1]);
             const motivo = args.slice(2).join(" ") || "Evento surpresa!";
@@ -368,7 +358,10 @@ async function connectToWhatsApp() {
             
             await sock.sendMessage(from, { text: `⏳ *CONTAGEM INICIADA!* \nMotivo: ${motivo}\nTempo: ${mins} minutos.` });
             setTimeout(async () => {
-                await sock.sendMessage(from, { text: `⏰ *ACABOU O TEMPO!* \n\n${motivo.toUpperCase()}`, mentions: membrosGrupo });
+                const meta = await sock.groupMetadata(from).catch(() => null);
+                if (meta) {
+                    await sock.sendMessage(from, { text: `⏰ *ACABOU O TEMPO!* \n\n${motivo.toUpperCase()}`, mentions: meta.participants.map(p => p.id) });
+                }
             }, mins * 60000);
             return;
         }
@@ -383,7 +376,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("! up")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const args = messageContent.split(/ +/); 
             const novoNivel = parseInt(args[2]); 
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant;
@@ -397,7 +390,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("!limparxp")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             if (!target) return sock.sendMessage(from, { text: "💡 Marque alguém para resetar o XP." });
             delete dbs[target];
@@ -406,7 +399,6 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent.startsWith("!perfil")) {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" }); 
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant || user;
             const data = dbs[target] || { xp: 0, level: 1 };
             const patente = obterPatente(data.level);
@@ -420,7 +412,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent === "!backup") {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             try {
                 return sock.sendMessage(from, { 
                     document: fs.readFileSync(xpFile), 
@@ -433,7 +425,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        if (messageContent.startsWith("!mutar") && isAdm) {
+        if (messageContent.startsWith("!mutar") && (isAdm || isDono)) {
             const alvo = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             if (!alvo) return sock.sendMessage(from, { text: "💡 Marque quem deve ser mutado." });
             if (!config.mutados.includes(alvo)) config.mutados.push(alvo);
@@ -441,7 +433,7 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `🤐 @${alvo.split("@")[0]} foi silenciado pelo Xerife.`, mentions: [alvo] });
         }
 
-        if (messageContent.startsWith("!desmutar") && isAdm) {
+        if (messageContent.startsWith("!desmutar") && (isAdm || isDono)) {
             const alvo = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             if (!alvo) return sock.sendMessage(from, { text: "💡 Marque quem deseja desmutar." });
             config.mutados = config.mutados.filter(u => u !== alvo);
@@ -450,7 +442,7 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent === "!tempo") {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const totalMs = Date.now() - uptimeBot;
             const horas = Math.floor(totalMs / 3600000);
             const mins = Math.floor((totalMs % 3600000) / 60000);
@@ -458,53 +450,60 @@ async function connectToWhatsApp() {
         }
 
         if (messageContent === "!memoria") {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const usado = process.memoryUsage().heapUsed / 1024 / 1024;
             return sock.sendMessage(from, { text: `🧠 *RAM:* ${usado.toFixed(2)} MB queimando no Render.` });
         }
 
         if (messageContent === "!saude") {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const usadoMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
             const totalMs = Date.now() - uptimeBot;
             const horas = Math.floor(totalMs / 3600000);
             const mins = Math.floor((totalMs % 3600000) / 60000);
-            return sock.sendMessage(from, { text: `🏥 *SAÚDE DO PATO:*\n\n🔋 RAM: ${usadoMB} MB\n⏱️ Uptime: ${horas}h ${mins}m\n🛡️ Manutenção: ${config.manutencao ? 'ON' : 'OFF'}\n🦆 Status: 100% Grasno` });
+            return sock.sendMessage(from, { text: `🏥 *SAÚDE DO PATO:*\n\n🔋 RAM: ${usadoMB} MB\n⏱️ Uptime: ${horas}h ${mins}m\n🛡️ Mute Spam: ON\n🦆 Status: 100% Grasno` });
         }
 
         if (messageContent === "!pingreal") {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
             const timestamp = msg.messageTimestamp * 1000;
             const ping = Date.now() - timestamp;
             return sock.sendMessage(from, { text: `🏓 *Ping Real:* ${ping}ms da mensagem até o cérebro do pato.` });
         }
 
-        if (messageContent === "!sorteiopremio" && isAdm) {
-            const sorteado = membrosGrupo[Math.floor(Math.random() * membrosGrupo.length)];
-            return sock.sendMessage(from, { text: `🏆 *ROLETA DA ARTE:*\n\nO grande vencedor é... @${sorteado.split("@")[0]}! 🎉`, mentions: [sorteado] });
+        if (messageContent === "!sorteiopremio" && (isAdm || isDono)) {
+            const meta = await sock.groupMetadata(from).catch(() => null);
+            if (meta) {
+                const sorteado = meta.participants[Math.floor(Math.random() * meta.participants.length)].id;
+                return sock.sendMessage(from, { text: `🏆 *ROLETA DA ARTE:*\n\nO grande vencedor é... @${sorteado.split("@")[0]}! 🎉`, mentions: [sorteado] });
+            }
         }
 
-        if (messageContent.startsWith("!votação") && isAdm) {
+        if (messageContent.startsWith("!votação") && (isAdm || isDono)) {
             const pauta = messageContent.replace("!votação", "").trim();
             return sock.sendMessage(from, { text: `🗳️ *NOVA VOTAÇÃO:*\n\n"${pauta || 'Qual a melhor arte?'}"\n\n👍 Aprovo | 👎 Reprovo` });
         }
 
         // --- COMANDOS PARA TODOS ---
+
         if (messageContent === "!calendario") {
             return sock.sendMessage(from, { text: `📅 *CALENDÁRIO ART OF DUCK:*\n\n${mural.calendario}` });
         }
 
         if (messageContent === "!collab" && isGroup) {
-            const membros = membrosGrupo.filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
-            if (membros.length < 2) return;
-            const art1 = membros[Math.floor(Math.random() * membros.length)];
-            let art2 = membros[Math.floor(Math.random() * membros.length)];
-            while (art2 === art1) art2 = membros[Math.floor(Math.random() * membros.length)];
-            
-            return sock.sendMessage(from, { 
-                text: `🎨 *ROLETA DA COLLAB!* 🎨\n\nO destino escolheu vocês para desenharem juntos:\n👉 @${art1.split("@")[0]}\n👉 @${art2.split("@")[0]}\n\nBora trabalhar!`, 
-                mentions: [art1, art2] 
-            });
+            const meta = await sock.groupMetadata(from).catch(() => null);
+            if (meta) {
+                const membros = meta.participants.map(p => p.id).filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
+                if (membros.length < 2) return;
+                const art1 = membros[Math.floor(Math.random() * membros.length)];
+                let art2 = membros[Math.floor(Math.random() * membros.length)];
+                while (art2 === art1) art2 = membros[Math.floor(Math.random() * membros.length)];
+                
+                return sock.sendMessage(from, { 
+                    text: `🎨 *ROLETA DA COLLAB!* 🎨\n\nO destino escolheu vocês para desenharem juntos:\n👉 @${art1.split("@")[0]}\n👉 @${art2.split("@")[0]}\n\nBora trabalhar!`, 
+                    mentions: [art1, art2] 
+                });
+            }
         }
 
         if (messageContent === "!roletarussa" && isGroup) {
@@ -568,7 +567,7 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `🦆 🔮 *O Pato Diz:* ${r}` });
         }
 
-        if (isGroup && isAdm) {
+        if (isGroup && (isAdm || isDono)) {
             if (messageContent === "!fechar") await sock.groupSettingUpdate(from, 'announcement');
             if (messageContent === "!abrir") await sock.groupSettingUpdate(from, 'not_announcement');
             if (messageContent.startsWith("!ban")) {
@@ -577,11 +576,11 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- MENU ATUALIZADO ---
         if (messageContent === "!tema") return sock.sendMessage(from, { text: `🎨 *DESAFIO DA SEMANA:* \n\n${mural.tema}` });
         if (messageContent === "!ping") return sock.sendMessage(from, { text: "🏓 Pong! Tanque cheio ⛽" });
+        
         if (messageContent === "!menu") {
-            if (!isAdm) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" }); 
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" }); 
             const menuTxt = `🦆 *MENU PATOBOT PRO V3* 🦆
 
 🔹 *GERAL:*
@@ -595,9 +594,8 @@ async function connectToWhatsApp() {
 !pato | !pergunta 
 
 🛡️ *ADM GERAL:*
-!manutencao on/off | !saude | !pingreal
-!tempo | !memoria | !ban
-!mutar | !desmutar | !shiu
+!saude | !pingreal | !tempo | !memoria
+!parou | !ban | !mutar | !desmutar | !shiu
 !fechar | !abrir | !aviso
 !votação | !sorteiopremio | !contagem
 
