@@ -145,9 +145,9 @@ async function connectToWhatsApp() {
             try { await sock.sendMessage(from, { text: textoBoasVindas, mentions: [person] }); } catch(e) {}
         }
 
-        // NOVO: 98. Adeus (Sarcástico)
+        // NOVO: Mensagem de despedida mais leve (ajustado)
         if (anu.action === 'remove') {
-            try { await sock.sendMessage(from, { text: `🦆 @${person.split("@")[0]} meteu o pé! Já vai tarde, menos um pra gastar o grafite da galera.`, mentions: [person] }); } catch(e) {}
+            try { await sock.sendMessage(from, { text: `👋 @${person.split("@")[0]} saiu do grupo. Até a próxima!`, mentions: [person] }); } catch(e) {}
         }
     });
 
@@ -206,11 +206,13 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: "🚧 *MODO MANUTENÇÃO:* O bot está pausado para melhorias ou a tropa abusou muito. Apenas ADMs podem usar comandos agora! 🦆🛠️" });
         }
 
-        // --- LOCKDOWN & SPAM DE COMANDO (147) ---
+        // --- LOCKDOWN & SPAM DE COMANDO (147) - COOLDOWN AJUSTADO ---
         if (isComando) {
             if (cooldowns.has(user)) return;
             cooldowns.add(user);
-            setTimeout(() => cooldowns.delete(user), 2000);
+            // ADMs/Dono esperam 2 segundos, membros comuns esperam 5 segundos
+            const tempoEspera = (isAdm || isDono) ? 2000 : 5000;
+            setTimeout(() => cooldowns.delete(user), tempoEspera);
 
             if (isGroup) {
                 if (!cmdSpamTracker[user]) cmdSpamTracker[user] = [];
@@ -243,8 +245,8 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- ANTI-SPAM DE MENSAGENS NORMAIS ---
-        if (isGroup) {
+        // --- ANTI-SPAM DE MENSAGENS NORMAIS (IGNORANDO IMAGENS) ---
+        if (isGroup && !msg.message.imageMessage) {
             if (spamTracker[user] && (agora - spamTracker[user]) < 1500) {
                 if (!avisosSpam[user]) avisosSpam[user] = 0;
                 avisosSpam[user]++;
@@ -398,7 +400,10 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: `🧹 *XP RESETADO:* @${target.split("@")[0]} voltou ao início.`, mentions: [target] });
         }
 
+        // --- TRAVA DE ADM ADICIONADA AQUI ---
         if (messageContent.startsWith("!perfil")) {
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.* Apenas ADMs podem ver perfis." });
+            
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant || user;
             const data = dbs[target] || { xp: 0, level: 1 };
             const patente = obterPatente(data.level);
