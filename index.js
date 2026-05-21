@@ -13,10 +13,10 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 const MY_URL = "https://patobot-version-3.onrender.com"; 
-const GRUPO_ID = "120363404586258584@g.us"; // Seu grupo oficial (Geral)
+const GRUPO_ID = "120363428250114617@g.us"; // Chat Principal (Geral)
 const DONO_ID = "558291583743@s.whatsapp.net"; // SEU NÚMERO COMO DONO SUPREMO
 
-// ARQUIVOS DE DADOS (XP removido, novos controles de Portaria e Inatividade adicionados)
+// ARQUIVOS DE DADOS
 const configFile = './config.json';
 const muralFile = './mural.json';
 const atividadeFile = './atividade.json';
@@ -24,20 +24,23 @@ const atividadeFile = './atividade.json';
 if (!fs.existsSync(configFile)) {
     fs.writeFileSync(configFile, JSON.stringify({ 
         mutados: [], 
-        grupoPortaria: "", 
+        grupoPortaria: "120363427089832303@g.us", // Chat da Portaria configurado nativamente
+        antiLinkAtivo: true, // Novo: controle de links ativado por padrão
         ficha: "🪜 *𝐙𝐄𝐍𝐈𝐓𝐇 𝐒𝐘𝐍𝐃𝐈𝐂𝐀𝐓𝐄 — PORTARIA* 👑\n\nSeja bem-vindo(a) ao setor de triagem.\n\nPara iniciarmos a avaliação e liberação de acesso ao Sindicato oficial, preencha a ficha abaixo:\n\n• *Nome/Nick:* \n• *Idade:* \n• *Área (Desenho/Design/Gestão):* \n• *Objetivo:* \n\n_Aguarde a avaliação da Diretoria._" 
     }, null, 2));
 } else {
     let conf = JSON.parse(fs.readFileSync(configFile));
     let alterou = false;
     if (!conf.mutados) { conf.mutados = []; alterou = true; }
-    if (!conf.hasOwnProperty("grupoPortaria")) { conf.grupoPortaria = ""; alterou = true; }
-    if (!conf.hasOwnProperty("ficha")) { 
+    if (!conf.grupoPortaria) { conf.grupoPortaria = "120363427089832303@g.us"; alterou = true; }
+    if (conf.antiLinkAtivo === undefined) { conf.antiLinkAtivo = true; alterou = true; }
+    if (!conf.ficha) { 
         conf.ficha = "🪜 *𝐙𝐄𝐍𝐈𝐓𝐇 𝐒𝐘𝐍𝐃𝐈𝐂𝐀𝐓𝐄 — PORTARIA* 👑\n\nSeja bem-vindo(a) ao setor de triagem.\n\nPara iniciarmos a avaliação e liberação de acesso ao Sindicato oficial, preencha a ficha abaixo:\n\n• *Nome/Nick:* \n• *Idade:* \n• *Área (Desenho/Design/Gestão):* \n• *Objetivo:* \n\n_Aguarde a avaliação da Diretoria._"; 
         alterou = true; 
     }
     if (alterou) fs.writeFileSync(configFile, JSON.stringify(conf, null, 2));
 }
+
 if (!fs.existsSync(muralFile)) fs.writeFileSync(muralFile, JSON.stringify({ tema: "Nenhuma pauta ativa no momento.", calendario: "Nenhum evento marcado." }));
 if (!fs.existsSync(atividadeFile)) fs.writeFileSync(atividadeFile, JSON.stringify({}));
 
@@ -135,18 +138,15 @@ async function connectToWhatsApp() {
 
         // --- SISTEMA DE DUPLA PORTARIA REFORMULADO ---
         if (anu.action === 'add') {
-            // Se entrar na Portaria cadastrada dinamicamente
             if (config.grupoPortaria && from === config.grupoPortaria) {
                 let textoFicha = config.ficha || "Ficha pendente de configuração.";
                 try { await sock.sendMessage(from, { text: textoFicha, mentions: [person] }); } catch(e) {}
             }
             
-            // Se for aprovado e entrar no grupo Geral
             if (from === GRUPO_ID) {
                 const textoBoasVindas = `👑 *𝐁𝐄𝐌-𝐕𝐈𝐍𝐃𝐎 𝐀𝐎 𝐙𝐄𝐍𝐈𝐓𝐇 𝐒𝐘𝐍𝐃𝐈𝐂𝐀𝐓𝐄* 🪜\n\nDiretoria atualizada. @${jidNumero} agora faz parte da nossa divisão oficial.\n\n🚨 *DIRETRIZES:* Foco em profissionalismo e cooperação. Evite spam e condutas inadequadas.\n\nUse *!regras* para ver as diretrizes do grupo! ✨`;
                 try { await sock.sendMessage(from, { text: textoBoasVindas, mentions: [person] }); } catch(e) {}
                 
-                // Registra o novo membro na inatividade
                 let atv = JSON.parse(fs.readFileSync(atividadeFile));
                 atv[person] = Date.now();
                 fs.writeFileSync(atividadeFile, JSON.stringify(atv, null, 2));
@@ -188,7 +188,6 @@ async function connectToWhatsApp() {
         let config = JSON.parse(fs.readFileSync(configFile));
         if (!config.mutados) config.mutados = [];
 
-        // --- PROTEÇÃO ANTI-QUEDA PARA BUSCAR ADMs ---
         let isAdm = false;
         if (isGroup) {
             try {
@@ -198,25 +197,22 @@ async function connectToWhatsApp() {
                 }
             } catch (e) { 
                 isAdm = false; 
-                console.log("⚠️ Erro ao buscar ADMs, mas o bot continua vivo.");
             }
         }
 
-        // --- SISTEMA DE MONITORAMENTO DE INATIVIDADE ---
         if (isGroup && from === GRUPO_ID) {
             let atv = JSON.parse(fs.readFileSync(atividadeFile));
             atv[user] = agora;
             fs.writeFileSync(atividadeFile, JSON.stringify(atv, null, 2));
         }
 
-        // --- SISTEMA DE MUTE ---
         if (config.mutados.includes(user)) {
             try { await sock.sendMessage(from, { delete: msg.key }); } catch(e) {}
             return;
         }
 
-        // --- FILTRO VIGILANTE: ANTI-LINK OCULTO ---
-        if (isGroup && !isAdm && !isDono && (messageContent.includes('chat.whatsapp.com/') || messageContent.includes('http://') || messageContent.includes('https://'))) {
+        // --- FILTRO VIGILANTE: ANTI-LINK (AGORA ALTERÁVEL) ---
+        if (config.antiLinkAtivo && isGroup && !isAdm && !isDono && (messageContent.includes('chat.whatsapp.com/') || messageContent.includes('http://') || messageContent.includes('https://'))) {
             try { await sock.sendMessage(from, { delete: msg.key }); } catch(e) {}
             return; 
         }
@@ -226,7 +222,7 @@ async function connectToWhatsApp() {
             return sock.sendMessage(from, { text: "🚧 *ACESSO NEGADO:* O sistema do Sindicato está bloqueado pela Diretoria para monitoramento." });
         }
 
-        // --- LOCKDOWN & SPAM DE COMANDO (MANTIDO INTACTO) ---
+        // --- LOCKDOWN & SPAM DE COMANDO ---
         if (isComando) {
             if (cooldowns.has(user)) return;
             cooldowns.add(user);
@@ -264,7 +260,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- ANTI-SPAM DE MENSAGENS NORMAIS (MANTIDO INTACTO) ---
+        // --- ANTI-SPAM DE MENSAGENS NORMAIS ---
         if (isGroup && !msg.message.imageMessage) {
             if (spamTracker[user] && (agora - spamTracker[user]) < 1500) {
                 if (!avisosSpam[user]) avisosSpam[user] = 0;
@@ -291,6 +287,20 @@ async function connectToWhatsApp() {
 
         // --- COMANDOS ADM & SEGUROS ---
 
+        if (messageContent === "!antilink on") {
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            config.antiLinkAtivo = true;
+            fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+            return sock.sendMessage(from, { text: "🛡️ *SISTEMA ANTI-LINK:* ATIVADO ✅\nLinks externos serão apagados automaticamente." });
+        }
+
+        if (messageContent === "!antilink off") {
+            if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
+            config.antiLinkAtivo = false;
+            fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+            return sock.sendMessage(from, { text: "⚠️ *SISTEMA ANTI-LINK:* DESATIVADO ❌\nEnvio de links está liberado para membros." });
+        }
+
         if (messageContent === "!id") {
             if (!isAdm && !isDono) return;
             return sock.sendMessage(from, { text: `🪜 *𝐙𝐄𝐍𝐈𝐓𝐇 INFO:* O ID deste chat é:\n\`${from}\`` });
@@ -305,8 +315,8 @@ async function connectToWhatsApp() {
 
         if (messageContent.startsWith("!setficha")) {
             if (!isAdm && !isDono) return sock.sendMessage(from, { text: "❌ *ACESSO NEGADO.*" });
-            const novaFicha = rawText.substring(9).trim(); // Captura com quebras de linha e letras maiúsculas intactas
-            if (!novaFicha) return sock.sendMessage(from, { text: "💡 Use: !setficha [Escreva aqui o modelo de ficha completo]" });
+            const novaFicha = rawText.substring(9).trim(); 
+            if (!novaFicha) return sock.sendMessage(from, { text: "💡 Use: !setficha [Escreva aqui o modelo de ficha]" });
             config.ficha = novaFicha;
             fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
             return sock.sendMessage(from, { text: `✅ *FICHA DE CADASTRO ATUALIZADA COM SUCESSO!*` });
@@ -337,7 +347,7 @@ async function connectToWhatsApp() {
             }
 
             if (contagem === 0) listaInativos = `✅ *STATUS:* Sindicato 100% operacional. Nenhuma inatividade acima de ${diasLimite} dias detectada.`;
-            else listaInativos += `\n📊 *Total:* ${contagem} membros pendentes de auditoria/baixa.`;
+            else listaInativos += `\n📊 *Total:* ${contagem} membros pendentes de auditoria.`;
 
             return sock.sendMessage(from, { text: listaInativos, mentions: mencoes });
         }
@@ -445,7 +455,7 @@ async function connectToWhatsApp() {
             const totalMs = Date.now() - uptimeBot;
             const horas = Math.floor(totalMs / 3600000);
             const mins = Math.floor((totalMs % 3600000) / 60000);
-            return sock.sendMessage(from, { text: `🏥 *DIAGNÓSTICO 𝐙𝐄𝐍𝐈𝐓𝐇:*\n\n🔋 RAM: ${usadoMB} MB\n⏱️ Uptime: ${horas}h ${mins}m\n🛡️ Segurança: Nível Máximo\n⚙️ Lockdown: ${modoManutencao ? "ON" : "OFF"}` });
+            return sock.sendMessage(from, { text: `🏥 *DIAGNÓSTICO 𝐙𝐄𝐍𝐈𝐓𝐇:*\n\n🔋 RAM: ${usadoMB} MB\n⏱️ Uptime: ${horas}h ${mins}m\n🛡️ Segurança: Nível Máximo\n⚙️ Lockdown: ${modoManutencao ? "ON" : "OFF"}\n🔗 Anti-link: ${config.antiLinkAtivo ? "ON ✅" : "OFF ❌"}` });
         }
 
         if (messageContent === "!pingreal") {
@@ -504,15 +514,16 @@ async function connectToWhatsApp() {
 !status | !pingreal | !tempo | !memoria
 !parou | !ban | !mutar | !desmutar | !shiu
 !fechar | !abrir | !aviso | !inativos [dias]
-!votação | !contagem | !id | !setportaria
+!antilink on | !antilink off | !contagem
 
 ✨ *MURAL & PORTARIA (ADM):*
-!settema | !setcalendario | !setficha [texto]`;
+!settema | !setcalendario | !setficha
+!id | !setportaria | !votação`;
             return sock.sendMessage(from, { text: menuTxt });
         }
         
         if (messageContent === "!regras") {
-            const textoRegras = `🪜 *DIRETRIZES 𝐙𝐄𝐍𝐈𝐓𝐇 𝐒𝐘𝐍𝐃𝐈𝐂𝐀𝐓𝐄* 👑\n\n1️⃣ *PROFISSIONALISMO:* Mantenha o respeito mútuo.\n2️⃣ *CONTEÚDO:* Proibido material explícito (+18).\n3️⃣ *COMUNICAÇÃO:* Proibido flood/spam.\n4️⃣ *SEGURANÇA:* Links externos serão deletados de forma preventiva.\n\n⚠️ O descumprimento resultará em medidas disciplinares ou expulsão imediata.`;
+            const textoRegras = `🪜 *DIRETRIZES 𝐙𝐄𝐍𝐈𝐓𝐇 𝐒𝐘𝐍𝐃𝐈𝐂𝐀𝐓𝐄* 👑\n\n1️⃣ *PROFISSIONALISMO:* Mantenha o respeito mútuo.\n2️⃣ *CONTEÚDO:* Proibido material explícito (+18).\n3️⃣ *COMUNICAÇÃO:* Proibido flood/spam.\n4️⃣ *SEGURANÇA:* Links externos serão deletados caso o Anti-Link esteja ativo.\n\n⚠️ O descumprimento resultará em medidas disciplinares ou expulsão imediata.`;
             return sock.sendMessage(from, { text: textoRegras });
         }
     });
